@@ -2,6 +2,7 @@
 .DS_Store
 report_*.txt
 _temp*.?*
+OTHER_REPOS/
 # === LOCAL ===
 # Template-only ignores.
 # === PYTHON ===
