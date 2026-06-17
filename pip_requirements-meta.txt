@@ -1,0 +1,1 @@
+pyyaml  # YAML parsing for the propagation manifest loader (repolib, template-meta only)

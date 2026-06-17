@@ -1,0 +1,140 @@
+# Propagation manifests: single source of propagation config.
+#
+# This file is template-meta. It lives under meta/ and NEVER ships to consumer
+# repos. repolib.manifests.load_manifests() reads it at import time and
+# repolib.model assigns the loaded values to its module-level manifest names
+# (ROUTING_OVERRIDES, META_FILES, etc.), so this YAML is the one place to edit
+# propagation routing config.
+#
+# Values here must match the Python literals that repolib.model previously
+# defined. This is data only; the loader applies the correct Python types
+# (frozenset for sets, tuple for meta_test_prefixes, dict for routing_overrides
+# and conditional_overlays).
+
+# Routing overrides: per-file exceptions layered on location-based routing.
+# Location (which template folder a file lives in) is the PRIMARY determinant;
+# the only remaining exception encoded here is exclude_repos.
+# exclude_repos blocks a file when the destination repo basename is listed
+# (used for docs sourced FROM a specific repo that must never ship back to it).
+routing_overrides:
+  # CLAUDE_HOOK_USAGE_GUIDE.md is sourced from claude-code-permissions-hook;
+  # never copy the mirror back over that repo's source of truth.
+  "docs/CLAUDE_HOOK_USAGE_GUIDE.md":
+    exclude_repos:
+      - claude-code-permissions-hook
+
+# Conditional overlays: underscore-prefixed template folders selected per consumer.
+# Shape: repo_type -> { overlay_name -> {when, path, description} }.
+# overlay_name is the underscore folder under templates/<repo_type>/.
+# Supported 'when' verbs: has_file (apply overlay when <path> exists at consumer).
+conditional_overlays:
+  python:
+    # _pypi layers PyPI packaging files onto python repos that ship a
+    # pyproject.toml at their root (templates/python/_pypi/).
+    _pypi:
+      when: has_file
+      path: pyproject.toml
+      description: >-
+        PyPI packaging overlay: ships submit_to_pypi.py and a pyproject.toml
+        seed only to python repos that are packaged for PyPI.
+
+# Root-level files repolib propagates (ships) to every consumer repo's root.
+# ROOT_PROPAGATE_ALLOWLIST says a root file MAY ship; universal_noexist refines
+# HOW it ships (overwrite vs noexist-only). Overlap with universal_noexist is
+# intentional (AGENTS.md, source_me.sh).
+root_propagate_allowlist:
+  - CLAUDE.md
+  - AGENTS.md
+  - source_me.sh
+  - dist_clean.sh
+  - pip_requirements-dev.txt
+
+# Files that ship only when absent at the consumer (universal noexist).
+# Overrides the docs/ universal-overwrite default; repo-root-relative paths.
+universal_noexist:
+  - AGENTS.md
+  - source_me.sh
+  - docs/AUTHORS.md
+  - tests/TESTS_README.md
+  - pip_requirements-dev.txt
+
+# Files routed to the MERGE bucket (set-union @-import merge).
+merge_files:
+  - CLAUDE.md
+
+# Files that NEVER ship (template-meta).
+meta_files:
+  - propagate_style_guides.py
+  - reset_repo.py
+  - README.md
+  - VERSION
+  - .gitignore
+  - REPO_TYPE
+  - Brewfile
+  - pip_extras.txt
+  - pip_requirements-meta.txt
+  - docs/CHANGELOG.md
+
+# Glob patterns (template-root-relative) that NEVER ship. Rotation archives like
+# docs/CHANGELOG-2026-06a.md must not propagate; the active docs/CHANGELOG.md stays
+# in meta_files above.
+meta_file_patterns:
+  - docs/CHANGELOG-*.md
+
+# Dirs that NEVER ship. Walked but never produce routing entries.
+meta_dirs:
+  - LICENSES
+  - templates
+  - meta
+  - repolib
+  - tools
+  - docs/active_plans
+  - docs/archive
+  - experiment_reports
+  - __pycache__
+  - .git
+
+# Dirs skipped during os.walk of the source template.
+skip_walk_dirs:
+  - .git
+  - .mypy_cache
+  - .pytest_cache
+  - old_shell_folder
+  - .venv
+  - .system
+  - __pycache__
+  - build
+  - dist
+  - node_modules
+  - venv
+  - meta
+  - tools
+
+# Docs excluded from auto-discovery.
+auto_discover_docs_exclude:
+  - AUTHORS.md
+  - CHANGELOG.md
+
+# Template-meta test filename prefixes (loaded as a tuple).
+meta_test_prefixes:
+  - test_repolib_
+  - test_reset_repo_
+  - test_detect_repo_type
+
+# Default skip list for repo discovery.
+default_repo_skip_names:
+  - starter-repo-template
+  - vosslab-skills
+
+# Recognized consumer REPO_TYPE marker tokens, in canonical display order
+# (loaded as an ordered tuple, NOT a frozenset). This is the single source of
+# truth for valid marker tokens: prompts and docs use the order, while a derived
+# frozenset (KNOWN_REPO_TYPES in repolib.model) handles membership checks. Order
+# matters here; do not sort. Internal routing pseudo-types (universal, unknown)
+# are NOT consumer tokens and are added at their own guard in repolib.files.
+known_repo_types:
+  - python
+  - typescript
+  - rust
+  - swift
+  - other

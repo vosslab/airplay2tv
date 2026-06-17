@@ -1,0 +1,25 @@
+# WARNING: Every line below is stripped from every consumer .gitignore
+# on each propagation, without per-line origin check. Do NOT add a
+# pattern any consumer might legitimately want to keep.
+#
+# Each addition to this file must be justified in docs/CHANGELOG.md
+# naming the originating cleanup (e.g. "added after build_*.sh purge").
+#
+# To retire a .gitignore pattern across all repos, add it as a line below;
+# the next propagation strips that line from every consumer .gitignore.
+
+shebang_report.txt
+pyflakes.txt
+bandit.txt
+pyright.txt
+ascii_compliance.txt
+report_shebang.txt
+report_pyflakes.txt
+report_ascii_compliance.txt
+report_import_star.txt
+report_import_dot.txt
+report_import_requirements.txt
+report_init_files.txt
+report_bandit.txt
+report_pyright.txt
+_bundle.js

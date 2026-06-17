@@ -1,0 +1,8 @@
+# macOS desktop
+.DS_Store
+
+# pytest reports
+report_*.txt
+
+# AI agent temp scripts
+_temp*.?*

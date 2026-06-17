@@ -1,0 +1,23 @@
+# Node
+node_modules/
+
+# Build outputs
+dist/
+_site/
+*.tsbuildinfo
+_bundle.js
+
+# Lint / format caches
+.eslintcache
+.prettiercache
+
+# Test outputs
+test-results/
+playwright-report/
+blob-report/
+coverage/
+
+# Bundler artifacts
+meta.json
+stats.html
+
