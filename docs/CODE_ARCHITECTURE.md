@@ -189,7 +189,18 @@ joins the thread.
   INFO / DEBUG) from the `--verbose` / `--debug` flags.
 - `airplay2tv/backends/registry.py`: `active_backends()` walks `BACKEND_SPECS`,
   lazily imports and instantiates each concrete backend class.
-- `airplay2tv/__main__.py`: package entry point for `python3 -m airplay2tv`.
+
+### Entry points
+
+Two routes reach `airplay2tv.cli.main()`:
+
+- `stream.py` (repo-root launcher): thin shim that prepends the repo root to
+  `sys.path` and calls `airplay2tv.cli.main()`. Use from a source checkout:
+  `source source_me.sh && python3 stream.py -i movie.mp4`.
+- `airplay2tv` console script: generated from the `[project.scripts]` entry in
+  `pyproject.toml` (`airplay2tv = "airplay2tv.cli:main"`) when the Homebrew
+  formula installs the package. The pyproject packaging exists to support that
+  packaged install; airplay2tv is run as an app, not imported as a PyPI library.
 
 ## Data flow (stream action)
 

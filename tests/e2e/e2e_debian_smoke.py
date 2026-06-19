@@ -5,8 +5,8 @@ Exercises the portable building blocks of airplay2tv end-to-end without real
 TV hardware or any macOS-only API. Every code path exercised here is portable
 and runs identically on macOS (test platform) and Debian with ffmpeg installed:
 
-  - CLI entry point:   python3 -m airplay2tv --help
-  - Doctor subcommand: python3 -m airplay2tv doctor
+  - CLI entry point:   python3 stream.py --help
+  - Doctor subcommand: python3 stream.py doctor
   - Fixture generation: tests/e2e/e2e_make_fixtures.py (lavfi, libx264, libx265)
   - Media inspect + decide: airplay2tv.media.inspect / decide (ffprobe, pure logic)
   - Media prepare remux/transcode: airplay2tv.media.prepare (libx264, stdlib tmp)
@@ -134,7 +134,7 @@ def run_subprocess(command: list[str], step: str) -> bool:
 
 #============================================
 def step_help() -> bool:
-	"""Run `python3 -m airplay2tv --help` and verify it exits 0.
+	"""Run `python3 stream.py --help` and verify it exits 0.
 
 	Args:
 		None
@@ -142,14 +142,15 @@ def step_help() -> bool:
 	Returns:
 		True when the command exits 0.
 	"""
-	# Use python3 from the environment (sourced by source_me.sh).
-	command = ['python3', '-m', 'airplay2tv', '--help']
+	# Use stream.py from the repo root as the portable CLI entry point.
+	stream_py = os.path.join(REPO_ROOT, 'stream.py')
+	command = ['python3', stream_py, '--help']
 	return run_subprocess(command, 'cli --help exits 0')
 
 
 #============================================
 def step_doctor() -> bool:
-	"""Run `python3 -m airplay2tv doctor` and verify it exits 0.
+	"""Run `python3 stream.py doctor` and verify it exits 0.
 
 	Doctor returns 0 when ffmpeg, ffprobe, and local address selection all pass.
 	It prints PASS/FAIL/INFO/WARN lines; we capture all output and verify the
@@ -161,7 +162,8 @@ def step_doctor() -> bool:
 	Returns:
 		True when doctor exits 0.
 	"""
-	command = ['python3', '-m', 'airplay2tv', 'doctor']
+	stream_py = os.path.join(REPO_ROOT, 'stream.py')
+	command = ['python3', stream_py, 'doctor']
 	return run_subprocess(command, 'doctor exits 0 (ffmpeg+ffprobe+address pass)')
 
 

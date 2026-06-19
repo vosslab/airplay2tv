@@ -1,5 +1,73 @@
 # CHANGELOG.md
 
+## 2026-06-18
+
+### Additions and New Features
+
+- Added repo-root launcher `stream.py`: a thin shim that prepends the repo root to
+  `sys.path` and calls `airplay2tv.cli.main()` (shebang on line 1, executable bit set).
+  This is the canonical way to run the tool from a source checkout.
+- Added `tests/e2e/e2e_entry_smoke.sh`: smoke check that invokes `stream.py --help` and
+  asserts exit 0.
+- Added `build_parser()` helper to `airplay2tv/cli.py`: factors parser construction out of
+  `main()`; `--help` now ends with a worked-examples epilog (`RawDescriptionHelpFormatter`,
+  `%(prog)s` so the examples match the launcher the user invoked).
+- Added `tests/test_cli.py`: one focused offline test asserting `run_stream` raises
+  `Airplay2tvError` before any device discovery when `-i/--input` is missing
+  (discovery-spy assertion).
+
+### Behavior or Interface Changes
+
+- Bare invocation (`stream.py` or `airplay2tv` with no arguments) now prints full help and
+  exits 0 instead of a terse usage line.
+- `app.run_stream` fails fast with a typed `Airplay2tvError` ("no input file: pass
+  -i/--input PATH") before device discovery when `-i/--input` is missing; previously the
+  error surfaced late inside `media.prepare`.
+- `python3 -m airplay2tv` is no longer a supported entry point; use `stream.py` from a
+  source checkout or the `airplay2tv` console script.
+
+### Fixes and Maintenance
+
+- Documentation now presents airplay2tv as an app you run (clone-and-run `stream.py`, or the
+  Homebrew-installed `airplay2tv` console script), not a PyPI library to `pip install` and
+  `import`. Refreshed `README.md`, `docs/INSTALL.md`, `docs/USAGE.md`,
+  `docs/CODE_ARCHITECTURE.md`, and `docs/FILE_STRUCTURE.md`; `INSTALL.md` leads with
+  clone-and-run and lists Homebrew as the packaged-install alternative.
+- `tests/e2e/e2e_debian_smoke.py` invokes `python3 stream.py` instead of
+  `python3 -m airplay2tv` so it works after `__main__.py` removal.
+- `HomebrewFormula/airplay2tv.rb` drops the manual `-m airplay2tv` wrapper and relies on
+  pip's generated `airplay2tv` console script; its `license` field corrected to MIT.
+- Bumped `[build-system] requires` from `setuptools>=68` to `setuptools>=78` so the PEP 639
+  SPDX `license = "MIT"` field is valid at build time.
+- Completed `[project]` metadata in `pyproject.toml`: added `readme`, `authors` (name only,
+  no email), `[project.urls]`, and `license = "MIT"`.
+- Corrected the README license line from "GPL-3.0-or-later" to MIT and filled the
+  `LICENSE.MIT.md` copyright holder ("Dr. Neil R Voss") to match the committed MIT license.
+- Reworded the stale "before app.py exists" rationale in `airplay2tv/cli.py` docstrings to
+  the real reason for the lazy import (keeping `--help` off app.py's heavier imports).
+
+### Removals and Deprecations
+
+- Removed `airplay2tv/__main__.py`; `python3 -m airplay2tv` is no longer supported. Use
+  `stream.py` (source checkout) or the `airplay2tv` console script.
+
+### Decisions and Failures
+
+- Project license confirmed MIT: the committed `LICENSE` has always been MIT; the README
+  claim of GPL was wrong. Aligned README, `pyproject.toml`, the Homebrew formula, and the
+  `LICENSE.MIT.md` copyright line to MIT.
+- Decided airplay2tv is distributed as a runnable app, not a PyPI import package: docs no
+  longer advertise `pip install airplay2tv` or `import airplay2tv`. The pyproject
+  console-script and metadata remain only so the Homebrew formula can install the command.
+
+### Developer Tests and Notes
+
+- A pre-merge multi-reviewer audit pruned two brittle pytests (asserting on the help-text
+  string and the formatter class) and stripped an unnecessary 50-line `FakeBackend` scaffold
+  from `tests/test_cli.py`, leaving the single fail-before-discovery invariant.
+- Verification: `pytest tests/` = 972 passed; `tests/e2e/e2e_debian_smoke.py` all 8 steps
+  pass; `tests/e2e/e2e_entry_smoke.sh` passes; `tests/test_markdown_links.py` green.
+
 ## 2026-06-17
 
 ### Additions and New Features
@@ -70,7 +138,7 @@
   `tests/`, `devel/`, `docs/`, and `HomebrewFormula/` with a one-line description of each
   file's role. Includes the generated/gitignored paths table.
 
-- Created `tests/e2e/e2e_debian_smoke.py` (WP-DEBIAN-SMOKE): 8-step portability smoke that runs end-to-end on macOS and Debian with ffmpeg installed; no real TV hardware or macOS-only API required. Steps: `python3 -m airplay2tv --help` exits 0; `airplay2tv doctor` exits 0; `e2e_make_fixtures.py` produces 3 lavfi fixtures; `airplay2tv.media.inspect` + `decide` returns `passthrough` for h264 and `transcode` for hevc; `media.prepare` completes a remux (MKV->MP4) and a transcode (HEVC->H.264 MP4); `httpserver.serve` answers a Range request with 206; `FakeBackend` app-stream flow (discover+prepare+serve+range) runs end-to-end. All 8 steps PASS in under 30 s. Shebang on line 1, executable bit set; pyflakes clean.
+- Created `tests/e2e/e2e_debian_smoke.py` (WP-DEBIAN-SMOKE): 8-step portability smoke that runs end-to-end on macOS and Debian with ffmpeg installed; no real TV hardware or macOS-only API required. Steps: `python3 stream.py --help` exits 0; `stream.py doctor` exits 0; `e2e_make_fixtures.py` produces 3 lavfi fixtures; `airplay2tv.media.inspect` + `decide` returns `passthrough` for h264 and `transcode` for hevc; `media.prepare` completes a remux (MKV->MP4) and a transcode (HEVC->H.264 MP4); `httpserver.serve` answers a Range request with 206; `FakeBackend` app-stream flow (discover+prepare+serve+range) runs end-to-end. All 8 steps PASS in under 30 s. Shebang on line 1, executable bit set; pyflakes clean.
 
 - Created `tests/test_app_flow.py` (WS-APP-FINALIZE): 8 offline pytest tests using a `FakeBackend` (declares `backend_key = "fake"`; no pyatv/rokuecp/network). Covers `app.backend_for_device` exact-key match and unknown-key raise; `app.select_device` skipping the picker for a reachable `--default-device` and falling back with a stderr notice when the default id is not discoverable; `app.persist_device` writing the record and the stored default id under `--save-device` + matching `--default-device`, and writing nothing (no config file created) without flags; and `cli.dispatch` mapping `Airplay2tvError` to exit code 1 with one stderr line while letting an unexpected `RuntimeError` propagate. All pass in 0.04 s.
 - Added `airplay2tv.app.select_device`, `find_by_identifier`, and `persist_device` helpers (WS-APP-FINALIZE): `select_device` resolves the target in order `--device` (exact) -> reachable `--default-device` -> reachable saved default id -> interactive picker, printing a clear notice and falling back to discovery when a preferred id is not on the network; `persist_device` writes the chosen device after a successful play and also marks it the stored default when `--default-device` named it.

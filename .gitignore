@@ -1,4 +1,6 @@
 # === UNIVERSAL ===
+*.mkv
+*.mp4
 .DS_Store
 report_*.txt
 _temp*.?*

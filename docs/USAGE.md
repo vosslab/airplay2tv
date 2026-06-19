@@ -5,16 +5,34 @@ How to run airplay2tv: stream, pair, doctor, and devices.
 ## Quick start
 
 ```bash
-source source_me.sh && python3 -m airplay2tv -i video.mkv
+# From a source checkout (recommended)
+source source_me.sh && python3 stream.py -i video.mkv
+
+# After brew install (Homebrew packaged install)
+airplay2tv -i video.mkv
 ```
 
-The first run discovers all AirPlay and Roku receivers on the local network,
-shows a numbered list, prompts for a device, pairs inline when a PIN is
-required (AirPlay), then streams the file.
+A bare invocation (`stream.py` or `airplay2tv` with no arguments) prints full
+help text and exits 0.
+
+If you supply flags but omit `-i/--input`, the tool fails fast before any
+device discovery with:
+
+```
+error: no input file: pass -i/--input PATH
+```
+
+The first normal run discovers all AirPlay and Roku receivers on the local
+network, shows a numbered list, prompts for a device, pairs inline when a PIN
+is required (AirPlay), then streams the file.
 
 ## Default stream action
 
 ```bash
+# source checkout
+source source_me.sh && python3 stream.py -i FILE [options]
+
+# Homebrew install
 airplay2tv -i FILE [options]
 ```
 
@@ -101,11 +119,15 @@ airplay2tv -i movie.mp4 --default-device AA:BB:CC:DD:EE:FF --save-device
 
 ## Subcommands
 
-### `airplay2tv devices`
+### `airplay2tv devices` / `stream.py devices`
 
 Discover all receivers and print the numbered list, then exit.
 
 ```bash
+# source checkout
+source source_me.sh && python3 stream.py devices
+
+# Homebrew install
 airplay2tv devices
 ```
 
@@ -117,13 +139,18 @@ airplay2tv devices
 Use this to look up the identifier string needed for `--default-device` or
 `airplay2tv pair -d`.
 
-### `airplay2tv pair`
+### `airplay2tv pair` / `stream.py pair`
 
 Run the interactive PIN-pairing handshake for an AirPlay device that requires
 pairing. Use this when running headless (no TTY) or when credentials need to
 be refreshed.
 
 ```bash
+# source checkout
+source source_me.sh && python3 stream.py pair
+source source_me.sh && python3 stream.py pair -d "Living Room TV"
+
+# Homebrew install
 airplay2tv pair
 airplay2tv pair -d "Living Room TV"
 airplay2tv pair -d AA:BB:CC:DD:EE:FF
@@ -135,11 +162,17 @@ is saved to `~/.config/airplay2tv/credentials.yaml` (mode 0600).
 Roku devices do not require a PIN. Run `airplay2tv pair` for AirPlay
 receivers only.
 
-### `airplay2tv doctor`
+### `airplay2tv doctor` / `stream.py doctor`
 
 Check the environment and print PASS/FAIL/INFO/WARN lines to stdout.
 
 ```bash
+# source checkout
+source source_me.sh && python3 stream.py doctor
+source source_me.sh && python3 stream.py doctor -d "Living Room TV"
+source source_me.sh && python3 stream.py doctor -i sample.mkv
+
+# Homebrew install
 airplay2tv doctor
 airplay2tv doctor -d "Living Room TV"
 airplay2tv doctor -i sample.mkv
@@ -167,7 +200,8 @@ probe against `<ip>:8060` for four ECP endpoints instead of relying on SSDP
 discovery:
 
 ```bash
-airplay2tv doctor --device 192.168.1.42
+source source_me.sh && python3 stream.py doctor --device 192.168.1.42
+# or: airplay2tv doctor --device 192.168.1.42
 ```
 
 For each endpoint (`/query/device-info`, `/query/active-app`, `/query/apps`,
@@ -202,7 +236,8 @@ is `limited`).
 Useful over SSH or before a scheduled run:
 
 ```bash
-airplay2tv doctor && airplay2tv -i nightly.mkv --default-device AA:BB:...
+source source_me.sh && python3 stream.py doctor && python3 stream.py -i nightly.mkv --default-device AA:BB:...
+# or: airplay2tv doctor && airplay2tv -i nightly.mkv --default-device AA:BB:...
 ```
 
 ## Media preparation
@@ -268,10 +303,14 @@ error: device 'Living Room TV' needs pairing. Run: airplay2tv pair
 Pre-pair on an interactive session before running headless:
 
 ```bash
-# On a machine with a terminal
-airplay2tv pair -d "Living Room TV"
+# On a machine with a terminal (source checkout)
+source source_me.sh && python3 stream.py pair -d "Living Room TV"
 
 # Later, in a cron job or SSH session (no TTY needed)
+source source_me.sh && python3 stream.py -i movie.mp4 --default-device AA:BB:...
+
+# Or with Homebrew install
+airplay2tv pair -d "Living Room TV"
 airplay2tv -i movie.mp4 --default-device AA:BB:...
 ```
 

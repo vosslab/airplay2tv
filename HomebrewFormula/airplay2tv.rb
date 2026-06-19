@@ -16,7 +16,7 @@ class Airplay2tv < Formula
   # Replace the url and sha256 with a tagged release archive when publishing.
   url "https://github.com/neilvoss/airplay2tv/archive/refs/tags/v26.06.tar.gz"
   sha256 "0000000000000000000000000000000000000000000000000000000000000000"
-  license "GPL-3.0-or-later"
+  license "MIT"
 
   depends_on "ffmpeg"
   depends_on "python@3.12"
@@ -67,13 +67,10 @@ class Airplay2tv < Formula
     system python3, "-m", "pip", "install", "--no-deps",
            "--install-option=--prefix=#{prefix}", "."
 
-    # Write a thin wrapper script so `airplay2tv` is on PATH.
-    # This calls airplay2tv.cli:main() via the installed package.
-    (bin/"airplay2tv").write <<~SHELL
-      #!/bin/bash
-      exec #{python3} -m airplay2tv "$@"
-    SHELL
-    chmod 0755, bin/"airplay2tv"
+    # The pip install above writes the airplay2tv console script (defined in
+    # [project.scripts] in pyproject.toml) directly into #{prefix}/bin/.
+    # No manual wrapper is needed; the generated script calls
+    # airplay2tv.cli:main() and is already executable.
   end
 
   test do

@@ -195,6 +195,12 @@ async def run_stream(args: object) -> int:
 	Returns:
 		0 on a clean run, non-zero when no devices are reachable.
 	"""
+	# Fail fast with a readable message when -i/--input is missing, before
+	# spending time on device discovery. Only the stream action requires a file;
+	# devices/doctor/pair have their own paths and never reach run_stream.
+	input_file = getattr(args, "input_file", None)
+	if input_file is None:
+		raise errors.Airplay2tvError("no input file: pass -i/--input PATH")
 	backends = registry.active_backends()
 	devices = await aggregate.discover_all(backends, DISCOVERY_TIMEOUT)
 	# Before relying on discovery, try the direct-IP / saved-address path: a

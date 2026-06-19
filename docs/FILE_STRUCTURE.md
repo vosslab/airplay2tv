@@ -20,6 +20,8 @@ pip_requirements.txt  Runtime Python dependencies
 pip_requirements-dev.txt  Developer Python dependencies (pytest)
 pyproject.toml        Package metadata, build config, and pytest options
 source_me.sh          Activates the Python environment for local runs
+stream.py             Repo-root launcher; thin shim calling airplay2tv.cli.main().
+                      Run with: source source_me.sh && python3 stream.py -i movie.mp4
 REPO_TYPE             Repo-type marker (token: python)
 ```
 
@@ -28,8 +30,6 @@ REPO_TYPE             Repo-type marker (token: python)
 ```
 airplay2tv/
   __init__.py         Package docstring only; no logic.
-  __main__.py         Entry point for `python3 -m airplay2tv` and
-                      `python3 airplay2tv`.
   cli.py              argparse surface: stream-action flags, pair/doctor/devices
                       subcommands, logging flags, dispatch, error rendering.
   app.py              Synchronous dispatcher and async stream orchestration:

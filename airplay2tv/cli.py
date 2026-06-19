@@ -2,8 +2,8 @@
 
 This module owns only the argparse surface and dispatch. The orchestration
 (`app.py`) and the pair/doctor/devices command handlers are imported lazily
-inside `main()` so `airplay2tv --help` and `<subcommand> --help` work today,
-before those modules exist.
+inside `main()` so `--help` stays decoupled from app.py's heavier transitive
+imports (asyncio, backends, media) and parses instantly.
 """
 
 # Standard Library
@@ -15,6 +15,17 @@ import importlib
 # local repo modules
 import airplay2tv.errors
 import airplay2tv.logging_setup
+
+
+# Usage examples shown at the bottom of --help output. %(prog)s expands to the
+# actual launcher name (stream.py from the repo, airplay2tv from the console
+# script), so the examples always match how the user invoked the tool.
+_EPILOG = (
+	"examples:\n"
+	"  %(prog)s -i movie.mp4   stream a file to a discovered receiver\n"
+	"  %(prog)s devices        list all reachable receivers\n"
+	"  %(prog)s pair           pair with a device that requires a PIN\n"
+)
 
 
 #============================================
@@ -92,21 +103,23 @@ def add_stream_arguments(parser: argparse.ArgumentParser) -> None:
 
 
 #============================================
-def parse_args() -> argparse.Namespace:
-	"""Parse command-line arguments for airplay2tv.
+def build_parser() -> argparse.ArgumentParser:
+	"""Build and return the top-level ArgumentParser without parsing sys.argv.
 
-	The default action (no subcommand) serves a file and plays it on a device.
-	Three subcommands run helper flows: pair, doctor, and devices.
+	Separated from parse_args() so main() can access the parser for --help
+	before parsing when called with zero arguments.
 
 	Args:
 		None
 
 	Returns:
-		The parsed argparse.Namespace.
+		The configured ArgumentParser ready to call parse_args() on.
 	"""
 	parser = argparse.ArgumentParser(
 		prog="airplay2tv",
 		description="Stream a local media file to an AirPlay or Roku receiver.",
+		formatter_class=argparse.RawDescriptionHelpFormatter,
+		epilog=_EPILOG,
 	)
 	# Top-level stream-action flags (used when no subcommand is given).
 	add_stream_arguments(parser)
@@ -138,6 +151,23 @@ def parse_args() -> argparse.Namespace:
 		"devices", help="discover and list reachable receivers",
 	)
 	add_logging_arguments(devices_parser)
+	return parser
+
+
+#============================================
+def parse_args() -> argparse.Namespace:
+	"""Parse command-line arguments for airplay2tv.
+
+	The default action (no subcommand) serves a file and plays it on a device.
+	Three subcommands run helper flows: pair, doctor, and devices.
+
+	Args:
+		None
+
+	Returns:
+		The parsed argparse.Namespace.
+	"""
+	parser = build_parser()
 	args = parser.parse_args()
 	return args
 
@@ -148,7 +178,7 @@ def main() -> None:
 
 	The stream action and every subcommand are handled by `airplay2tv.app`,
 	which inspects `args.command`. The app module is imported lazily here so
-	this module (and `--help`) work before `app.py` exists.
+	`--help` and the no-args help path never pay for app.py's heavier imports.
 
 	Args:
 		None
@@ -156,6 +186,13 @@ def main() -> None:
 	Returns:
 		None
 	"""
+	# Show help and exit cleanly when the user passes no arguments at all.
+	# This distinguishes "bare run" (show help) from "flags set but -i missing"
+	# (which reaches run_stream and fails fast with a readable error).
+	if len(sys.argv) == 1:
+		parser = build_parser()
+		print(parser.format_help(), end="")
+		raise SystemExit(0)
 	args = parse_args()
 	# Configure logging before any work so handlers honor the chosen level.
 	airplay2tv.logging_setup.configure(args.verbose, args.debug)
