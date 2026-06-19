@@ -1,0 +1,18 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.backends.legacy:build"
+
+[project]
+name = "airplay2tv"
+version = "26.06"
+description = "Stream local media files to Apple TV or Roku from the command line."
+requires-python = ">=3.12"
+
+[project.scripts]
+airplay2tv = "airplay2tv.cli:main"
+
+[tool.pytest.ini_options]
+# Put the repo root on sys.path so tests import the airplay2tv package
+# directly without an editable install. pytest already treats this file as
+# its configfile, so rootdir is the repo root and "." resolves here.
+pythonpath = ["."]

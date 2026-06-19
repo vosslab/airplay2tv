@@ -1,2 +1,4 @@
-pyatv
-rokuecp
+defusedxml  # Safe XML parsing; guards against XXE and billion-laughs attacks
+pyatv  # Apple TV control via AirPlay and MRP protocols
+rokuecp  # Roku External Control Protocol client
+pyyaml  # YAML parsing and serialization

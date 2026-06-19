@@ -1,1 +1,1 @@
-ffmpeg
+brew "ffmpeg"
