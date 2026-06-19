@@ -65,6 +65,14 @@
 - A pre-merge multi-reviewer audit pruned two brittle pytests (asserting on the help-text
   string and the formatter class) and stripped an unnecessary 50-line `FakeBackend` scaffold
   from `tests/test_cli.py`, leaving the single fail-before-discovery invariant.
+- Moved the real-socket / HTTP-round-trip tests out of the fast pytest lane into self-contained
+  E2E runners, per docs/E2E_TESTS.md and docs/PYTEST_STYLE.md: `tests/test_httpserver.py`
+  relocated whole to `tests/e2e/e2e_httpserver.py` (every check binds a real server), and the
+  8 fake-ECP-server tests in `tests/test_roku_ecp.py` moved to `tests/e2e/e2e_roku_ecp.py`
+  while the 6 pure-logic tests (launch-param building, media profile, pairing, status mapping,
+  the rokuecp import-boundary walk) stayed as fast pytests. Each E2E script runs standalone and
+  exits non-zero on failure. Result: `pytest tests/` dropped from about 10 s to about 2 s
+  (965 passed) because the ~0.5 s-per-test server-shutdown poll no longer runs in the fast lane.
 - Verification: `pytest tests/` = 972 passed; `tests/e2e/e2e_debian_smoke.py` all 8 steps
   pass; `tests/e2e/e2e_entry_smoke.sh` passes; `tests/test_markdown_links.py` green.
 
