@@ -18,6 +18,7 @@ import pytest
 import airplay2tv.pairing as pairing
 import airplay2tv.backends.base as base
 import airplay2tv.credentials as credentials
+import airplay2tv.discovery.discovery_result as discovery_result
 
 
 #============================================
@@ -105,11 +106,15 @@ def _install_fake_backend(monkeypatch: pytest.MonkeyPatch, backend: FakePairingB
 	"""Patch registry and discovery so only the fake backend is visible."""
 	monkeypatch.setattr(pairing.registry, "active_backends", lambda: [backend])
 
-	async def fake_discover_all(backends: list, timeout: object) -> list:
+	async def fake_discover_all(
+		backends: list,
+		timeout: object,
+	) -> discovery_result.DiscoveryResult:
 		# Delegate to the single fake backend to keep device data consistent.
 		if not backends:
-			return []
-		return await backends[0].discover()
+			return discovery_result.DiscoveryResult(devices=[], failures=[])
+		devices = await backends[0].discover()
+		return discovery_result.DiscoveryResult(devices=devices, failures=[])
 
 	monkeypatch.setattr(pairing.aggregate, "discover_all", fake_discover_all)
 

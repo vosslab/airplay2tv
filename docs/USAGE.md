@@ -139,6 +139,13 @@ airplay2tv devices
 Use this to look up the identifier string needed for `--default-device` or
 `airplay2tv pair -d`.
 
+Discovery progress is printed to stderr (a `Scanning for ...` line per backend
+and a per-backend result line), while the numbered device list goes to stdout,
+so `stream.py devices 2>/dev/null` yields a clean, pipeable list. If a required
+backend dependency (`pyatv` or `rokuecp`) is not installed, the command prints
+`error: required backend dependencies not installed: ...; install them with:
+pip install -r pip_requirements.txt` instead of an empty "no receivers" result.
+
 ### `airplay2tv pair` / `stream.py pair`
 
 Run the interactive PIN-pairing handshake for an AirPlay device that requires
@@ -183,11 +190,14 @@ Required checks (contribute to the exit code):
 - `ffmpeg` on PATH
 - `ffprobe` on PATH
 - Local address selection (can the host choose a LAN-facing IP?)
+- Backend dependency availability (`pyatv` and `rokuecp` importable); a missing
+  required backend dependency fails the check and prints the install command
 
 Advisory checks (printed but do not affect exit code):
 
-- AirPlay/backend discovery: devices found
-- Roku SSDP stats: probes, valid responses, duplicates, malformed
+- AirPlay/backend discovery: number of devices found
+- Roku SSDP stats: probes, valid responses, duplicates, malformed (plus an
+  interface-fallback note when no outbound interface could be selected)
 - Per-device pairing state for discovered devices
 - Media-prep dry run for `-i FILE` (inspect + decide, no ffmpeg run)
 

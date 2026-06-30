@@ -1,5 +1,86 @@
 # CHANGELOG.md
 
+## 2026-06-30
+
+### Additions and New Features
+
+- Added `airplay2tv/discovery/discovery_result.py` with frozen `DiscoveryResult`
+  (devices plus failures) and `BackendFailure` (backend, reason). `discover_all`
+  now returns a `DiscoveryResult` so a backend that times out or raises is
+  reported to the user instead of collapsing into a blank device list.
+- Added `registry.backend_availability()`, a non-raising probe returning each
+  backend's package, availability, install command, and constructed instance;
+  `doctor` uses it to report a missing backend instead of aborting.
+- `devices` and `stream` now narrate discovery progress on stderr: a start line
+  per backend ("Scanning for AirPlay receivers...", "Scanning for Roku
+  devices...") and a result line as each backend finishes (count or failure
+  reason), so a multi-second scan no longer looks dead. The device list stays on
+  stdout, so piping `devices` output remains clean.
+
+### Behavior or Interface Changes
+
+- `registry.active_backends()` now treats `pyatv` and `rokuecp` as required
+  runtime dependencies: when either is not installed it raises a typed
+  `Airplay2tvError` naming the missing package and `pip install -r
+  pip_requirements.txt`, instead of silently dropping the backend and reporting
+  "no devices". A missing driver now looks like a missing driver.
+- `--help` no longer hardcodes `prog="airplay2tv"`; argparse uses the launcher
+  basename, so usage and the `%(prog)s` examples read `stream.py ...` to match
+  how the tool is actually run (this is a run-only repo with no `pyproject.toml`
+  / console script).
+- The Roku SSDP probe now selects the outbound interface (`IP_MULTICAST_IF` per
+  active IPv4 interface) and sends two probes within the listen window, so a Roku
+  on Ethernet is reached from a Wi-Fi host on the same subnet. `DiscoveryStats`
+  reports the real probe count.
+- The AirPlay backend now reports an unmapped pyatv device state as the literal
+  "unknown" rather than silently relabeling it "idle".
+
+### Fixes and Maintenance
+
+- Root cause of "detects nothing while actively streaming": `pyatv` and `rokuecp`
+  were declared in `pip_requirements.txt` but not installed, so both backends
+  were silently dropped at runtime. Installing the declared dependencies plus the
+  loud-failure change above resolves both the detection failure and the
+  `pytest tests/` collection failure.
+- Removed the silent swallowing that hid backend failures: the broad
+  `except Exception` that returned `[]` in `discovery/aggregate.py` and the
+  `except Exception: pass` in the AirPlay backend's `pair()`. Failures are now
+  recorded as `BackendFailure` records and surfaced.
+- PYTHON_STYLE cleanup in touched files: explicit bind-host resolution in
+  `app.py` (no `or "0.0.0.0"`), over-long `except` bodies trimmed to helpers in
+  `app.py` and `cli.py`, ALL_CAPS rename of the AirPlay device-state lookup, and
+  intent comments on the genuinely-optional `value or fallback` device-info
+  fields in the Roku backend.
+- `doctor`, `pairing`, and the app callers updated to the `DiscoveryResult`
+  contract.
+- Refreshed docs for the new behavior: `docs/CODE_ARCHITECTURE.md` (typed
+  `DiscoveryResult`, loud-fail registry, doctor required backend check),
+  `docs/FILE_STRUCTURE.md` (new `discovery_result.py`, per-interface SSDP),
+  `docs/USAGE.md` (backend-availability check, stderr scan progress, missing-
+  dependency error), and a `docs/TROUBLESHOOTING.md` "Detection finds nothing"
+  section. Wired `DiscoveryStats.fallback_reason` into the `doctor` SSDP report
+  and fixed the import order in `backends/registry.py`.
+- Corrected user-facing recovery hints that named a nonexistent `airplay2tv`
+  command (no `pyproject.toml` / console script in this run-only repo) to the
+  real `stream.py` launcher.
+- Fixed `tests/conftest.py` so `pytest tests/` runs without a preset
+  `PYTHONPATH`: it now prepends the repo root to `sys.path` via
+  `file_utils.get_repo_root()` (the mechanism its own comment already described
+  but did not implement). Previously a bare `pytest tests/` with `PYTHONPATH`
+  unset failed every module with `ModuleNotFoundError: No module named
+  'airplay2tv'`.
+
+### Developer Tests and Notes
+
+- Added `tests/test_registry.py` (missing dependency raises a named error;
+  availability probe reports missing without raising) and a `discover_all`
+  test asserting a raising backend is surfaced as a `BackendFailure`. The
+  AirPlay backend and Roku SSDP modules gained tests for the unknown-state and
+  interface-selection behavior; the full `pytest tests/` suite passes.
+- Live validation on the maintainer's setup (Mac on Wi-Fi, Roku on Ethernet,
+  same /24): `./stream.py devices` lists the Roku (AirPlay and roku-ecp) with
+  progress on stderr and the device list on stdout.
+
 ## 2026-06-18
 
 ### Additions and New Features

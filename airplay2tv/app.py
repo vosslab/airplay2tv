@@ -42,6 +42,7 @@ import airplay2tv.devicepick as devicepick
 import airplay2tv.backends.base as base
 import airplay2tv.backends.registry as registry
 import airplay2tv.discovery.aggregate as aggregate
+import airplay2tv.discovery.discovery_result as discovery_result
 
 
 # Wall-clock seconds allowed for all backend discoveries to complete together.
@@ -50,7 +51,47 @@ import airplay2tv.discovery.aggregate as aggregate
 # reports zero devices even when a receiver is present.
 DISCOVERY_TIMEOUT = 7.0
 
+# Friendly scan labels keyed by backend_key, for the progress narration the
+# devices and stream actions print to stderr while discovery runs. An unknown
+# key falls back to the key itself, which is an acceptable last-resort label.
+SCAN_LABELS = {
+	"airplay": "AirPlay receivers (pyatv mDNS, up to 5s)",
+	"roku-ecp": "Roku devices (SSDP)",
+}
+
 logger = logging.getLogger(__name__)
+
+
+#============================================
+def announce_scan(backends: list[base.Backend]) -> None:
+	"""Print a start line per backend to stderr so a scan looks alive at once.
+
+	Args:
+		backends: The active backends about to be queried.
+	"""
+	for backend in backends:
+		# Unknown backend keys fall back to the key as a readable label.
+		label = SCAN_LABELS.get(backend.backend_key, backend.backend_key)
+		print(f"Scanning for {label}...", file=sys.stderr)
+
+
+#============================================
+def report_backend_outcome(
+	name: str,
+	devices: list[base.Device],
+	failure: discovery_result.BackendFailure | None,
+) -> None:
+	"""Print one backend's discovery outcome to stderr as its scan finishes.
+
+	Args:
+		name: The backend key that just finished.
+		devices: The devices it found (empty on failure).
+		failure: The backend's failure, or None when it succeeded.
+	"""
+	if failure is not None:
+		print(f"  {name}: {failure.reason}", file=sys.stderr)
+		return
+	print(f"  {name}: {len(devices)} found", file=sys.stderr)
 
 
 #============================================
@@ -99,11 +140,13 @@ async def run_devices(args: object) -> int:
 	Returns:
 		0 when devices are found, non-zero when none are reachable.
 	"""
-	devices = await aggregate.discover_all(registry.active_backends(), DISCOVERY_TIMEOUT)
-	if not devices:
+	backends = registry.active_backends()
+	announce_scan(backends)
+	result = await aggregate.discover_all(backends, DISCOVERY_TIMEOUT, report_backend_outcome)
+	if not result.devices:
 		print(no_devices_message(), file=sys.stderr)
 		return 1
-	print(devicepick.render(devices))
+	print(devicepick.render(result.devices))
 	return 0
 
 
@@ -175,10 +218,31 @@ def lazy_import(module_path: str) -> object | None:
 	try:
 		module = importlib.import_module(module_path)
 	except ModuleNotFoundError as exc:
-		if exc.name == module_path:
-			return None
-		raise
+		return _none_if_module_absent(exc, module_path)
 	return module
+
+
+#============================================
+def _none_if_module_absent(
+	exc: ModuleNotFoundError,
+	module_path: str,
+) -> object | None:
+	"""Return None when the named module itself is absent, else re-raise.
+
+	Args:
+		exc: The ModuleNotFoundError raised by the import attempt.
+		module_path: The dotted path that was being imported.
+
+	Returns:
+		None when `module_path` itself is the missing module.
+
+	Raises:
+		ModuleNotFoundError: When a different (nested) module was missing, which
+			signals a real bug rather than a not-yet-built optional module.
+	"""
+	if exc.name == module_path:
+		return None
+	raise exc
 
 
 #============================================
@@ -202,7 +266,9 @@ async def run_stream(args: object) -> int:
 	if input_file is None:
 		raise errors.Airplay2tvError("no input file: pass -i/--input PATH")
 	backends = registry.active_backends()
-	devices = await aggregate.discover_all(backends, DISCOVERY_TIMEOUT)
+	announce_scan(backends)
+	result = await aggregate.discover_all(backends, DISCOVERY_TIMEOUT, report_backend_outcome)
+	devices = result.devices
 	# Before relying on discovery, try the direct-IP / saved-address path: a
 	# known IP must work even when SSDP is silent. resolve_known_address returns
 	# a Device when a backend resolves a known address, or None to fall through.
@@ -229,7 +295,11 @@ async def run_stream(args: object) -> int:
 		# Build the advertised URL from the routable local interface IP so the
 		# device can reach the server even when it binds to all interfaces.
 		advertised_host = netutil.local_ip_for(device.address)
-		bind_host = getattr(args, "bind_host", None) or "0.0.0.0"  # nosec B104 - LAN server binds all interfaces by design; advertised URL uses specific LAN IP
+		# bind_host is optional on the namespace; an explicit None check makes the
+		# all-interfaces default visible rather than hidden behind an `or`.
+		bind_host = getattr(args, "bind_host", None)
+		if bind_host is None:
+			bind_host = "0.0.0.0"  # nosec B104 - LAN server binds all interfaces by design; advertised URL uses specific LAN IP
 		url, server, server_thread = httpserver.serve(
 			prepared.path,
 			bind_host=bind_host,
@@ -244,11 +314,7 @@ async def run_stream(args: object) -> int:
 		wait_for_interrupt()
 		return 0
 	except KeyboardInterrupt:
-		# Set cancel_event first so _run_ffmpeg (if still active) terminates
-		# and removes its partial output before the finally shutil.rmtree runs.
-		cancel_event.set()
-		print("\nStopping playback...")
-		await backend.stop(device)
+		await handle_interrupt(cancel_event, backend, device)
 		return 0
 	finally:
 		# Release both owned resources on every exit path: success, an
@@ -256,6 +322,27 @@ async def run_stream(args: object) -> int:
 		if server is not None and server_thread is not None:
 			httpserver.shutdown(server, server_thread)
 		shutil.rmtree(temp_dir, ignore_errors=True)
+
+
+#============================================
+async def handle_interrupt(
+	cancel_event: threading.Event,
+	backend: base.Backend,
+	device: base.Device,
+) -> None:
+	"""Cancel any in-flight transcode, then stop playback cleanly on Ctrl+C.
+
+	Args:
+		cancel_event: The event a running ffmpeg watches; setting it terminates
+			the transcode and removes its partial output before cleanup.
+		backend: The backend that owns the playing device.
+		device: The device to stop.
+	"""
+	# Set cancel_event first so a running ffmpeg terminates and removes its
+	# partial output before the run_stream finally block's shutil.rmtree runs.
+	cancel_event.set()
+	print("\nStopping playback...")
+	await backend.stop(device)
 
 
 #============================================
@@ -310,7 +397,7 @@ async def ensure_paired(backend: base.Backend, device: base.Device) -> None:
 	if not sys.stdin.isatty():
 		message = ""
 		message += f"device {device.name!r} needs pairing. "
-		message += "Run: airplay2tv pair"
+		message += "Run: stream.py pair"
 		raise errors.PairingRequiredError(message)
 	# Inline pairing: the backend drives the handshake and calls prompt_pin to
 	# read the 4-digit code the device shows on screen.
@@ -658,5 +745,5 @@ def no_devices_message() -> str:
 	message = ""
 	message += "No receivers found on the local network. "
 	message += "Check that the device is on and on the same network, "
-	message += "then try: airplay2tv devices"
+	message += "then try: stream.py devices"
 	return message

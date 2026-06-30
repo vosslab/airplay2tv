@@ -1,3 +1,17 @@
+# Standard Library
+import sys
+
+# local repo modules
+import file_utils
+
+# Put the repo root on sys.path so `pytest tests/` imports the airplay2tv
+# package without an editable install or a preset PYTHONPATH. pytest adds this
+# conftest's own directory (tests/) to sys.path before importing it, which makes
+# `import file_utils` resolve; get_repo_root() then locates the repo root via
+# git and prepends it so `import airplay2tv...` works in every test module.
+sys.path.insert(0, file_utils.get_repo_root())
+
+
 # Exclude both end-to-end tiers from pytest collection. tests/playwright/
 # holds browser-driven tests (Playwright), and tests/e2e/ holds heavier
 # shell/Python whole-system runners. Both run outside pytest -- see

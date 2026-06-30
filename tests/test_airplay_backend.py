@@ -295,7 +295,7 @@ def test_pair_close_raising_does_not_mask_pairing_error() -> None:
 
 	Finding 3 (HIGH): if has_paired is False and pairing.close() also raises,
 	the pairing error is the one the caller cares about. The close error is
-	secondary and must be silenced so the original failure surfaces.
+	secondary and must be logged, not allowed to mask the original failure.
 	"""
 	device = _make_device()
 	config = _make_config(device.identifier, device.name, device.address, device.model)
@@ -304,8 +304,9 @@ def test_pair_close_raising_does_not_mask_pairing_error() -> None:
 	pairing = mock.MagicMock()
 	pairing.begin = mock.AsyncMock()
 	pairing.finish = mock.AsyncMock()
-	# close() also raises to simulate a session teardown failure.
-	pairing.close = mock.AsyncMock(side_effect=RuntimeError("close failed"))
+	# close() also raises to simulate a session teardown failure; PairingError
+	# is the specific pyatv exception the backend catches around pairing.close().
+	pairing.close = mock.AsyncMock(side_effect=pyatv.exceptions.PairingError("close failed"))
 	pairing.has_paired = False
 
 	async def fake_scan(loop: object, **kwargs: object) -> list:

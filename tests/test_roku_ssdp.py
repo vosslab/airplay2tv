@@ -3,6 +3,9 @@
 # Standard Library
 import socket
 
+# PIP3 modules
+import pytest
+
 # local repo modules
 import airplay2tv.discovery.roku_ssdp as roku_ssdp
 
@@ -149,3 +152,77 @@ def test_multicast_socket_is_udp_and_nonblocking() -> None:
 	assert sock.type == socket.SOCK_DGRAM
 	assert sock.getblocking() is False
 	sock.close()
+
+
+#============================================
+def test_enumerate_drops_loopback_and_unspecified(monkeypatch: pytest.MonkeyPatch) -> None:
+	# Loopback and 0.0.0.0 cannot reach a LAN device, so they are filtered out.
+	monkeypatch.setattr(
+		roku_ssdp,
+		"_hostname_ipv4_addresses",
+		lambda: {"127.0.0.1", "192.168.1.50"},
+	)
+	monkeypatch.setattr(
+		roku_ssdp, "_default_route_source_ip", lambda: roku_ssdp.UNSPECIFIED_IPV4
+	)
+	ips = roku_ssdp._enumerate_multicast_interface_ips()
+	assert "127.0.0.1" not in ips
+	assert roku_ssdp.UNSPECIFIED_IPV4 not in ips
+	assert "192.168.1.50" in ips
+
+
+#============================================
+def test_send_round_selects_each_interface() -> None:
+	# Each interface IP must drive one IP_MULTICAST_IF select plus one send.
+	transport = _FakeTransport()
+	sock = _FakeSocket()
+	message = roku_ssdp._build_msearch_message()
+	sent = roku_ssdp._send_msearch_round(transport, sock, message, ["192.168.1.50", "10.0.0.9"])
+	assert sent == 2
+	assert len(sock.multicast_if_calls) == 2
+	assert len(transport.sent) == 2
+
+
+#============================================
+def test_send_round_falls_back_to_default_egress() -> None:
+	# With no interfaces, one probe is sent and no interface is selected.
+	transport = _FakeTransport()
+	sock = _FakeSocket()
+	message = roku_ssdp._build_msearch_message()
+	sent = roku_ssdp._send_msearch_round(transport, sock, message, [])
+	assert sent == 1
+	assert len(sock.multicast_if_calls) == 0
+	assert len(transport.sent) == 1
+
+
+#============================================
+class _FakeTransport:
+	"""Minimal datagram transport that records sends and closure."""
+
+	def __init__(self) -> None:
+		self.sent: list[tuple[bytes, tuple[str, int]]] = []
+		self.closed = False
+
+	def sendto(self, data: bytes, addr: tuple[str, int]) -> None:
+		self.sent.append((data, addr))
+
+	def close(self) -> None:
+		self.closed = True
+
+
+#============================================
+class _FakeSocket:
+	"""Minimal socket recording IP_MULTICAST_IF selections for assertions."""
+
+	def __init__(self) -> None:
+		self.multicast_if_calls: list[bytes] = []
+
+	def setsockopt(self, level: int, optname: int, value: bytes) -> None:
+		# Record only the multicast egress selections; ignore other options.
+		if optname == socket.IP_MULTICAST_IF:
+			self.multicast_if_calls.append(value)
+
+	def close(self) -> None:
+		pass
+
+

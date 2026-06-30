@@ -119,10 +119,16 @@ A 403 response is translated to `DeviceUnreachableError` naming that setting.
 
 ### Discovery (`airplay2tv/discovery/`)
 
-- `aggregate.py`: `discover_all(backends, timeout)` runs every backend's
-  `discover()` concurrently via `asyncio.gather` under a shared
-  `asyncio.wait_for` timeout. A backend that raises or returns nothing
-  contributes zero devices; the merged flat list is returned.
+- `aggregate.py`: `discover_all(backends, timeout, on_backend_done=None)` runs
+  every backend's `discover()` concurrently via `asyncio.gather` under a shared
+  `asyncio.wait_for` timeout, and returns a `DiscoveryResult(devices, failures)`.
+  A backend that raises, times out, or returns `None` produces a visible
+  `BackendFailure(backend, reason)` instead of silently contributing zero. The
+  optional `on_backend_done` callback fires as each backend finishes, which the
+  app uses to narrate scan progress on stderr.
+- `discovery_result.py`: the frozen `DiscoveryResult` (devices plus failures)
+  and `BackendFailure` (backend key, reason) carriers shared by the aggregate
+  and app layers.
 - `roku_ssdp.py`: async SSDP M-SEARCH over UDP (`asyncio.DatagramProtocol`).
   Parses UPnP response headers case-insensitively, dedupes by USN, and
   returns `(responders, DiscoveryStats)`.
@@ -179,16 +185,22 @@ joins the thread.
   subcommand. Discovers devices, selects one, checks for an existing record,
   runs the PIN handshake, and saves the record.
 - `airplay2tv/doctor.py`: `run_checks(device, input_file) -> int` prints
-  PASS/FAIL/INFO/WARN lines. Required checks (ffmpeg, ffprobe, address) affect
-  the exit code; advisory checks (discovery, SSDP stats, pairing state, media
-  dry-run) do not.
+  PASS/FAIL/INFO/WARN lines. Required checks (ffmpeg, ffprobe, address, and
+  backend dependency availability via `registry.backend_availability()`) affect
+  the exit code; advisory checks (discovered device count, SSDP stats, pairing
+  state, media dry-run) do not.
 - `airplay2tv/errors.py`: typed error hierarchy: `Airplay2tvError` (base),
   `UnsupportedMediaError`, `PreparationError`, `PairingRequiredError`,
   `DeviceUnreachableError`, `CredentialsError`.
 - `airplay2tv/logging_setup.py`: configures the root logger level (WARNING /
   INFO / DEBUG) from the `--verbose` / `--debug` flags.
 - `airplay2tv/backends/registry.py`: `active_backends()` walks `BACKEND_SPECS`,
-  lazily imports and instantiates each concrete backend class.
+  lazily imports and instantiates each concrete backend class, and raises
+  `Airplay2tvError` naming the missing pip package and the install command when a
+  required backend dependency (`pyatv`, `rokuecp`) is absent. `pyatv` and
+  `rokuecp` are required, not optional, so a missing one fails loud instead of
+  silently dropping the backend. `backend_availability()` is the non-raising
+  probe `doctor` uses to report each backend's state.
 
 ### Entry points
 

@@ -6,6 +6,32 @@ It prints PASS/FAIL/INFO/WARN lines for ffmpeg, ffprobe, network, discovery,
 and per-device pairing state, and returns exit code 1 when any required check
 fails.
 
+## Detection finds nothing (missing backend dependency)
+
+**Symptom.** `stream.py devices` reports no receivers, or a stream exits with
+`error: required backend dependencies not installed: ...`, even though the TV is
+on and on the same network.
+
+**Cause.** The receiver backends require `pyatv` (AirPlay) and `rokuecp` (Roku
+ECP). When either package is not installed, that backend cannot load. The tool
+fails loud and names the missing package instead of printing a blank "no
+receivers" result.
+
+**Fix.**
+
+1. Install the declared dependencies:
+   ```
+   source source_me.sh && pip install -r pip_requirements.txt
+   ```
+2. Re-run discovery:
+   ```
+   source source_me.sh && python3 stream.py devices
+   ```
+3. Confirm both backends load with `stream.py doctor`; the backend lines read
+   `[PASS] backend pyatv: installed` and `[PASS] backend rokuecp: installed`.
+
+See [INSTALL.md](INSTALL.md) for the full dependency list.
+
 ## AirPlay: not authenticated / playback refused
 
 **Symptom.** `airplay2tv` exits with an error such as

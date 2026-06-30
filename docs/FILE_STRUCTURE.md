@@ -64,8 +64,10 @@ airplay2tv/
     __init__.py       Package docstring only; no logic.
     base.py           Backend-agnostic contract: Backend ABC, Device, MediaProfile,
                       PlaybackStatus, PairingRecord, PairingState.
-    registry.py       active_backends(): lazily imports and instantiates each
-                      concrete backend from BACKEND_SPECS.
+    registry.py       active_backends(): imports and instantiates each backend
+                      from BACKEND_SPECS, and raises Airplay2tvError naming the
+                      missing pip package when a required backend dep is absent.
+                      backend_availability(): non-raising probe used by doctor.
     airplay.py        AirPlayBackend: sole importer of pyatv. mDNS discovery (5 s),
                       AirPlay PIN pairing, URL streaming via play_url.
     roku_ecp.py       RokuEcpBackend: sole importer of rokuecp. SSDP discovery,
@@ -73,10 +75,14 @@ airplay2tv/
 
   discovery/
     __init__.py       Package docstring only; no logic.
-    aggregate.py      discover_all(backends, timeout): concurrent gather over all
-                      backends under a shared asyncio timeout.
-    roku_ssdp.py      async SSDP M-SEARCH over UDP. Parses UPnP responses, dedupes
-                      by USN, returns (responders, DiscoveryStats).
+    aggregate.py      discover_all(backends, timeout, on_backend_done): concurrent
+                      gather over all backends under a shared asyncio timeout;
+                      returns a DiscoveryResult and surfaces per-backend failures.
+    discovery_result.py  DiscoveryResult (devices + failures) and BackendFailure
+                      (backend, reason) carriers shared by aggregate and app.
+    roku_ssdp.py      async SSDP M-SEARCH over UDP. Probes per active interface
+                      (IP_MULTICAST_IF) in two rounds, parses UPnP responses,
+                      dedupes by USN, returns (responders, DiscoveryStats).
 ```
 
 ## `tests/`

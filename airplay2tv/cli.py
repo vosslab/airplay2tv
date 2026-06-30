@@ -17,9 +17,10 @@ import airplay2tv.errors
 import airplay2tv.logging_setup
 
 
-# Usage examples shown at the bottom of --help output. %(prog)s expands to the
-# actual launcher name (stream.py from the repo, airplay2tv from the console
-# script), so the examples always match how the user invoked the tool.
+# Usage examples shown at the bottom of --help output. %(prog)s expands to
+# the basename of sys.argv[0] (argparse's default prog), so the examples
+# match how the user actually invoked the tool: stream.py when run as
+# ./stream.py, airplay2tv when run via the installed console script.
 _EPILOG = (
 	"examples:\n"
 	"  %(prog)s -i movie.mp4   stream a file to a discovered receiver\n"
@@ -115,8 +116,10 @@ def build_parser() -> argparse.ArgumentParser:
 	Returns:
 		The configured ArgumentParser ready to call parse_args() on.
 	"""
+	# No explicit prog= here: argparse defaults to the basename of sys.argv[0],
+	# so the usage line and %(prog)s examples adapt to however the tool was
+	# launched (./stream.py or the installed airplay2tv console script).
 	parser = argparse.ArgumentParser(
-		prog="airplay2tv",
 		description="Stream a local media file to an AirPlay or Roku receiver.",
 		formatter_class=argparse.RawDescriptionHelpFormatter,
 		epilog=_EPILOG,
@@ -203,6 +206,23 @@ def main() -> None:
 
 
 #============================================
+def report_dispatch_error(exc: airplay2tv.errors.Airplay2tvError, debug: bool) -> None:
+	"""Print a deliberate Airplay2tvError as one line, plus a traceback if debug.
+
+	Args:
+		exc: The caught error to report.
+		debug: When True, also print the full traceback to stderr.
+
+	Returns:
+		None
+	"""
+	# Show the full stack only under --debug; otherwise one readable line.
+	if debug:
+		traceback.print_exc()
+	print(f"error: {exc}", file=sys.stderr)
+
+
+#============================================
 def dispatch(app: object, args: argparse.Namespace) -> int:
 	"""Run the requested action and map expected failures to a clean exit.
 
@@ -228,9 +248,6 @@ def dispatch(app: object, args: argparse.Namespace) -> int:
 	try:
 		exit_code = app.run(args)
 	except airplay2tv.errors.Airplay2tvError as exc:
-		# Show the full stack only under --debug; otherwise one readable line.
-		if getattr(args, "debug", False):
-			traceback.print_exc()
-		print(f"error: {exc}", file=sys.stderr)
+		report_dispatch_error(exc, getattr(args, "debug", False))
 		return 1
 	return exit_code

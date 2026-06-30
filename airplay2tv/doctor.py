@@ -293,8 +293,8 @@ async def _run_discovery(
 	Returns:
 		Flat list of discovered Device objects.
 	"""
-	devices = await aggregate.discover_all(backends, timeout=_DISCOVERY_TIMEOUT)
-	return devices
+	result = await aggregate.discover_all(backends, timeout=_DISCOVERY_TIMEOUT)
+	return result.devices
 
 
 #============================================
@@ -349,8 +349,17 @@ async def _async_run_checks(
 	else:
 		print(f"[{_label(addr_ok)}] local address selection: {addr_value}")
 
-	# --- AirPlay backend discovery ---
-	backends = registry.active_backends()
+	# --- backend availability (required deps) ---
+	# Use the non-raising probe so doctor reports a missing backend dependency
+	# instead of aborting; a missing required backend counts as a failure.
+	availability = registry.backend_availability()
+	for item in availability:
+		if item.available:
+			print(f"[PASS] backend {item.package}: installed")
+		else:
+			required_failures += 1
+			print(f"[FAIL] backend {item.package}: missing -- install: {item.install_command}")
+	backends = [item.backend for item in availability if item.backend is not None]
 	print(f"[INFO] active backends: {len(backends)}")
 
 	devices = await _run_discovery(backends)
@@ -369,6 +378,10 @@ async def _async_run_checks(
 		f"malformed={roku_stats.malformed} "
 		f"timeout={roku_stats.timed_out:.1f}s"
 	)
+	# Surface the interface-selection fallback when SSDP could not pick a
+	# specific outbound interface and used the OS default egress instead.
+	if roku_stats.fallback_reason is not None:
+		print(f"[INFO] Roku SSDP interface fallback: {roku_stats.fallback_reason}")
 
 	# --- direct ECP probe when device_filter is a bare IP address ---
 	ecp_result: dict[str, object] | None = None

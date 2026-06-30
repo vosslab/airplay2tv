@@ -22,6 +22,7 @@ import pytest
 import airplay2tv.app as app
 import airplay2tv.media as media
 import airplay2tv.backends.base as base
+import airplay2tv.discovery.discovery_result as discovery_result
 
 
 #============================================
@@ -197,6 +198,10 @@ def test_stream_run_no_devices_returns_nonzero(monkeypatch: pytest.MonkeyPatch) 
 
 
 #============================================
-async def _empty_discover(backends: list, timeout: object) -> list:
+async def _empty_discover(
+	backends: list,
+	timeout: object,
+	on_backend_done: object = None,
+) -> discovery_result.DiscoveryResult:
 	# stand-in discover_all that finds nothing, regardless of backends passed
-	return []
+	return discovery_result.DiscoveryResult(devices=[], failures=[])

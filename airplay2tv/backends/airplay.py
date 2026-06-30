@@ -15,6 +15,7 @@ returns a set of tasks; it must not be awaited.
 
 # Standard Library
 import asyncio
+import logging
 import collections.abc
 
 # PIP3 modules
@@ -26,6 +27,8 @@ import pyatv.exceptions
 import airplay2tv.errors as errors
 import airplay2tv.credentials as credentials
 import airplay2tv.backends.base as base
+
+logger = logging.getLogger(__name__)
 
 
 #============================================
@@ -40,7 +43,7 @@ SCAN_TIMEOUT = 5
 # Map pyatv DeviceState members to the backend-normalized state strings used by
 # PlaybackStatus. Loading and Seeking collapse to "playing" because the media is
 # active; Idle reports as "idle" to distinguish a connected-but-empty device.
-_DEVICE_STATE_NAMES = {
+DEVICE_STATE_NAMES = {
 	pyatv.const.DeviceState.Idle: "idle",
 	pyatv.const.DeviceState.Loading: "playing",
 	pyatv.const.DeviceState.Paused: "paused",
@@ -174,7 +177,7 @@ class AirPlayBackend(base.Backend):
 		record = credentials.get_record(device.identifier, self.backend_key)
 		if record is None:
 			raise errors.PairingRequiredError(
-				f"AirPlay device {device.name} is not paired; run: airplay2tv pair"
+				f"AirPlay device {device.name} is not paired; run: stream.py pair"
 			)
 		config = await self._resolve_config(device)
 		# The credential payload is the opaque pyatv credentials string this
@@ -183,6 +186,26 @@ class AirPlayBackend(base.Backend):
 		loop = asyncio.get_running_loop()
 		atv = await pyatv.connect(config, loop)
 		return atv
+
+	#--------------------------------------------
+	def _credentials_rejected_error(self, device: base.Device) -> errors.PairingRequiredError:
+		"""Build the PairingRequiredError raised when pyatv rejects stored credentials.
+
+		Shared by play/stop/status so each AuthenticationError except body stays
+		a short translation step rather than repeating the message inline.
+
+		Args:
+			device: The selected receiver whose credentials were rejected.
+
+		Returns:
+			The `errors.PairingRequiredError` to raise from the caller's except block.
+		"""
+		message = (
+			f"AirPlay device {device.name} rejected stored credentials; "
+			f"run: stream.py pair"
+		)
+		error = errors.PairingRequiredError(message)
+		return error
 
 	#--------------------------------------------
 	async def play(self, device: base.Device, media_url: str, media: object) -> None:
@@ -204,10 +227,7 @@ class AirPlayBackend(base.Backend):
 			# credential surfaces as AuthenticationError from the RTSP setup.
 			await atv.stream.play_url(media_url)
 		except pyatv.exceptions.AuthenticationError as auth_error:
-			raise errors.PairingRequiredError(
-				f"AirPlay device {device.name} rejected stored credentials; "
-				f"run: airplay2tv pair"
-			) from auth_error
+			raise self._credentials_rejected_error(device) from auth_error
 		finally:
 			# AppleTV.close() is synchronous and returns a set of tasks; do not await.
 			atv.close()
@@ -227,10 +247,7 @@ class AirPlayBackend(base.Backend):
 		try:
 			await atv.remote_control.stop()
 		except pyatv.exceptions.AuthenticationError as auth_error:
-			raise errors.PairingRequiredError(
-				f"AirPlay device {device.name} rejected stored credentials; "
-				f"run: airplay2tv pair"
-			) from auth_error
+			raise self._credentials_rejected_error(device) from auth_error
 		finally:
 			# Synchronous close; returns a set, never awaited.
 			atv.close()
@@ -253,10 +270,7 @@ class AirPlayBackend(base.Backend):
 		try:
 			playing = await atv.metadata.playing()
 		except pyatv.exceptions.AuthenticationError as auth_error:
-			raise errors.PairingRequiredError(
-				f"AirPlay device {device.name} rejected stored credentials; "
-				f"run: airplay2tv pair"
-			) from auth_error
+			raise self._credentials_rejected_error(device) from auth_error
 		finally:
 			# Synchronous close; returns a set, never awaited.
 			atv.close()
@@ -272,10 +286,15 @@ class AirPlayBackend(base.Backend):
 
 		Returns:
 			The mapped `base.PlaybackStatus`. Unknown device states report as
-			"idle" so the CLI never shows a raw pyatv enum.
+			"unknown" so the CLI never shows a raw pyatv enum, and an unmapped
+			state is never silently relabeled as "idle".
 		"""
-		# An unmapped state should not crash status; report it as idle.
-		state = _DEVICE_STATE_NAMES.get(playing.device_state, "idle")
+		# An unmapped state should not crash status, and must not be
+		# mislabeled as idle; report it honestly as "unknown".
+		if playing.device_state in DEVICE_STATE_NAMES:
+			state = DEVICE_STATE_NAMES[playing.device_state]
+		else:
+			state = "unknown"
 		# pyatv position and total_time are integer seconds or None.
 		position = playing.position
 		duration = playing.total_time
@@ -385,9 +404,8 @@ class AirPlayBackend(base.Backend):
 		# surfaced separately and does not mask the PairingRequiredError below.
 		try:
 			await pairing.close()
-		except Exception:
-			# Log nothing here; a close failure is secondary to the pairing outcome.
-			pass
+		except pyatv.exceptions.PairingError as close_error:
+			logger.warning(f"AirPlay pairing close() failed: {close_error}")
 		# Evaluate the outcome after the session is closed.
 		if not has_paired:
 			raise errors.PairingRequiredError(

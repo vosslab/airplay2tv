@@ -106,8 +106,8 @@ def test_discover_all_merges_multiple_backends() -> None:
 		airplay2tv.discovery.aggregate.discover_all([backend_a, backend_b], timeout=5.0)
 	)
 
-	assert device_a in result
-	assert device_b in result
+	assert device_a in result.devices
+	assert device_b in result.devices
 
 
 def test_discover_all_tolerates_backend_that_raises() -> None:
@@ -120,7 +120,44 @@ def test_discover_all_tolerates_backend_that_raises() -> None:
 		airplay2tv.discovery.aggregate.discover_all([good_backend, bad_backend], timeout=5.0)
 	)
 
-	assert good_device in result
+	assert good_device in result.devices
+
+
+def test_discover_all_surfaces_failure_for_raising_backend() -> None:
+	"""A backend that raises is surfaced as a BackendFailure, not hidden."""
+	good_device = _make_device("Good", identifier="g-2")
+	good_backend = FakeBackend(devices=[good_device])
+	bad_backend = FakeBackend(raise_exc=RuntimeError("boom"))
+
+	result = asyncio.run(
+		airplay2tv.discovery.aggregate.discover_all([good_backend, bad_backend], timeout=5.0)
+	)
+
+	# The healthy backend still contributes its device.
+	assert good_device in result.devices
+	# The failing backend is reported, with its error text, not swallowed.
+	assert any("boom" in failure.reason for failure in result.failures)
+
+
+def test_discover_all_treats_none_return_as_failure() -> None:
+	"""A backend returning None (not a list) is surfaced as a BackendFailure."""
+
+	class NoneBackend(FakeBackend):
+		async def discover(self) -> list[airplay2tv.backends.base.Device] | None:
+			# A contract-violating return: discover() must return a list.
+			return None
+
+	good_device = _make_device("Good", identifier="g-3")
+	result = asyncio.run(
+		airplay2tv.discovery.aggregate.discover_all(
+			[FakeBackend(devices=[good_device]), NoneBackend()],
+			timeout=5.0,
+		)
+	)
+
+	# The healthy backend still contributes; the None-returning backend fails loud.
+	assert good_device in result.devices
+	assert any("None" in failure.reason for failure in result.failures)
 
 
 def test_discover_all_tolerates_backend_that_returns_empty() -> None:
@@ -133,15 +170,15 @@ def test_discover_all_tolerates_backend_that_returns_empty() -> None:
 		airplay2tv.discovery.aggregate.discover_all([present_backend, empty_backend], timeout=5.0)
 	)
 
-	assert device in result
+	assert device in result.devices
 
 
 def test_discover_all_empty_backends_list() -> None:
-	"""discover_all returns an empty list when given no backends."""
+	"""discover_all returns an empty result when given no backends."""
 	result = asyncio.run(
 		airplay2tv.discovery.aggregate.discover_all([], timeout=5.0)
 	)
-	assert result == []
+	assert result.devices == []
 
 
 #============================================
@@ -309,4 +346,4 @@ def test_slow_backend_does_not_cancel_fast_backend() -> None:
 	)
 
 	# The fast backend's device must be present despite the slow backend timing out
-	assert fast_device in result
+	assert fast_device in result.devices

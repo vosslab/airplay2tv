@@ -13,6 +13,7 @@ import pytest
 import airplay2tv.doctor as doctor
 import airplay2tv.backends.base as base
 import airplay2tv.discovery.roku_ssdp as roku_ssdp
+import airplay2tv.discovery.discovery_result as discovery_result
 
 
 #============================================
@@ -55,12 +56,12 @@ def _patch_all_pass(monkeypatch: pytest.MonkeyPatch, device: base.Device) -> Non
 		"airplay2tv.backends.registry.active_backends",
 		lambda: [],
 	)
-	# discover_all returns the supplied device
+	# discover_all returns the supplied device wrapped in a DiscoveryResult
 	async def _fake_discover_all(
 		backends: list,
 		timeout: float,
-	) -> list:
-		return [device]
+	) -> discovery_result.DiscoveryResult:
+		return discovery_result.DiscoveryResult(devices=[device], failures=[])
 	monkeypatch.setattr(
 		"airplay2tv.discovery.aggregate.discover_all",
 		_fake_discover_all,
@@ -135,12 +136,15 @@ def test_run_checks_device_filter_narrows_output(
 	device_match = _make_device(name="Bedroom Roku", backend="roku")
 	device_other = _make_device(name="Kitchen TV", backend="airplay")
 
-	# Make discover_all return both devices
+	# Make discover_all return both devices in a DiscoveryResult
 	async def _fake_discover_all(
 		backends: list,
 		timeout: float,
-	) -> list:
-		return [device_match, device_other]
+	) -> discovery_result.DiscoveryResult:
+		return discovery_result.DiscoveryResult(
+			devices=[device_match, device_other],
+			failures=[],
+		)
 
 	_patch_all_pass(monkeypatch, device_match)
 	monkeypatch.setattr(

@@ -142,10 +142,14 @@ class RokuEcpBackend(airplay2tv.backends.base.Backend):
 		if roku_info is None:
 			# No device-info read: unreachable, not a Roku, or control blocked.
 			return None
-		# Serial number is the stable id; fall back to the address when absent.
+		# Serial number is genuinely optional (the Roku may not report it); the
+		# address is an intentional fallback so identifier is never empty.
 		identifier = roku_info.serial_number or address
-		# Friendly name when reported; otherwise the address stands in.
+		# Friendly name is genuinely optional; the address is an intentional
+		# fallback so name is never empty.
 		name = roku_info.name or address
+		# model_name is genuinely optional; model_number is an intentional
+		# fallback so model still carries some identifying string when present.
 		model = roku_info.model_name or roku_info.model_number
 		device = airplay2tv.backends.base.Device(
 			name=name,
@@ -176,6 +180,8 @@ class RokuEcpBackend(airplay2tv.backends.base.Backend):
 		if roku_info is not None:
 			if roku_info.name:
 				name = roku_info.name
+			# model_name is genuinely optional; model_number is an intentional
+			# fallback so model still carries some identifying string when present.
 			model = roku_info.model_name or roku_info.model_number
 
 		device = airplay2tv.backends.base.Device(

@@ -123,13 +123,14 @@ async def _async_run(args: object) -> int:
 		The integer exit code for the process.
 	"""
 	backends = registry.active_backends()
-	devices = await aggregate.discover_all(backends, DISCOVERY_TIMEOUT)
+	result = await aggregate.discover_all(backends, DISCOVERY_TIMEOUT)
+	devices = result.devices
 	if not devices:
 		# Print a recovery hint so the user knows why pairing cannot continue.
 		message = ""
 		message += "No receivers found on the local network. "
 		message += "Check that the device is on and on the same Wi-Fi, "
-		message += "then try: airplay2tv devices"
+		message += "then try: stream.py devices"
 		print(message, file=sys.stderr)
 		return 1
 

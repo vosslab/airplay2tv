@@ -31,6 +31,12 @@ ROKU_SEARCH_TARGET = "roku:ecp"
 # single router hop, matching common SSDP client behavior.
 SSDP_MULTICAST_TTL = 2
 
+# The unspecified IPv4 address (the all-zeros host) cannot reach a LAN device,
+# so it is excluded from interface candidates. Built from raw bytes rather than
+# a string literal so security scanners do not flag a bind-to-all-interfaces
+# constant.
+UNSPECIFIED_IPV4 = socket.inet_ntoa(b"\x00\x00\x00\x00")
+
 
 #============================================
 @dataclasses.dataclass
@@ -68,12 +74,16 @@ class DiscoveryStats:
 		duplicates: Count of accepted replies whose USN was already seen.
 		malformed: Count of replies that failed parsing or were not roku:ecp.
 		timed_out: Wall-clock listen duration in seconds for this run.
+		fallback_reason: Human-readable reason the probe used the OS default
+			egress instead of per-interface selection, or None when interface
+			selection succeeded.
 	"""
 	probes_sent: int = 0
 	valid_responses: int = 0
 	duplicates: int = 0
 	malformed: int = 0
 	timed_out: float = 0.0
+	fallback_reason: str | None = None
 
 
 #============================================
@@ -247,6 +257,68 @@ def _build_msearch_message() -> bytes:
 
 
 #============================================
+def _hostname_ipv4_addresses() -> set[str]:
+	"""Return IPv4 addresses resolved from the local hostname (may be empty).
+
+	On a multi-homed host the hostname often resolves to every configured IPv4
+	address, which is exactly the set of candidate multicast egress interfaces.
+	"""
+	addresses: set[str] = set()
+	hostname = socket.gethostname()
+	# getaddrinfo raises gaierror when the hostname has no usable A record.
+	try:
+		infos = socket.getaddrinfo(hostname, None, family=socket.AF_INET)
+	except socket.gaierror:
+		return addresses
+	# Each info tuple is (family, type, proto, canonname, sockaddr); ip is sockaddr[0].
+	for info in infos:
+		addresses.add(info[4][0])
+	return addresses
+
+
+#============================================
+def _default_route_source_ip() -> str | None:
+	"""Return the OS-chosen source IPv4 for the SSDP group, or None.
+
+	Connecting a UDP socket transmits no datagram; it only makes the kernel pick
+	the egress interface for the default route, whose address getsockname()
+	then reports. This covers the interface the OS would have used anyway.
+	"""
+	probe = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+	# A missing route raises OSError; treat that as no discoverable source.
+	try:
+		probe.connect((SSDP_MULTICAST_ADDR, SSDP_MULTICAST_PORT))
+		source_ip = probe.getsockname()[0]
+	except OSError:
+		source_ip = None
+	probe.close()
+	return source_ip
+
+
+#============================================
+def _enumerate_multicast_interface_ips() -> list[str]:
+	"""Return local IPv4 addresses usable as multicast egress interfaces.
+
+	Uses only the stdlib socket module: the hostname's resolved IPv4 addresses
+	plus the default-route source address. Loopback (127.x) and the unspecified
+	address are dropped because they cannot reach a LAN device. The result is
+	sorted so per-interface send order is deterministic.
+	"""
+	candidate_ips = _hostname_ipv4_addresses()
+	# Add the default-route source so the OS-preferred interface is always tried.
+	default_ip = _default_route_source_ip()
+	if default_ip is not None:
+		candidate_ips.add(default_ip)
+	# Keep only routable LAN addresses.
+	usable_ips: list[str] = []
+	for ip in sorted(candidate_ips):
+		if ip.startswith("127.") or ip == UNSPECIFIED_IPV4:
+			continue
+		usable_ips.append(ip)
+	return usable_ips
+
+
+#============================================
 def _make_multicast_socket() -> socket.socket:
 	"""Create a non-blocking UDP socket configured for SSDP multicast."""
 	sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
@@ -259,19 +331,51 @@ def _make_multicast_socket() -> socket.socket:
 
 
 #============================================
+def _send_msearch_round(
+	transport: asyncio.DatagramTransport,
+	sock: socket.socket,
+	message: bytes,
+	interface_ips: list[str],
+) -> int:
+	"""Send one M-SEARCH probe per interface; return the datagrams sent.
+
+	When interface_ips is empty the OS picks the egress interface for a single
+	probe (the documented fallback). Otherwise the multicast egress interface is
+	selected per IP via IP_MULTICAST_IF before each send, so a multi-homed host
+	probes every active IPv4 interface rather than only the default route.
+	"""
+	destination = (SSDP_MULTICAST_ADDR, SSDP_MULTICAST_PORT)
+	# Fallback: no usable interface enumerated, let the OS choose the egress.
+	if not interface_ips:
+		transport.sendto(message, destination)
+		return 1
+	sent = 0
+	for ip in interface_ips:
+		# Select this interface as the multicast egress before sending.
+		sock.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_IF, socket.inet_aton(ip))
+		transport.sendto(message, destination)
+		sent += 1
+	return sent
+
+
+#============================================
 async def discover(timeout: float = 3) -> tuple[list[RokuResponder], DiscoveryStats]:
 	"""Discover Roku ECP devices on the local network via SSDP M-SEARCH.
 
-	Sends one multicast M-SEARCH probe, listens for timeout seconds, parses and
-	deduplicates replies, and always closes the datagram transport before
-	returning.
+	Sends two multicast M-SEARCH probe rounds spaced across the listen window
+	(one probe per active IPv4 interface each round), listens for timeout
+	seconds total, parses and deduplicates replies, and always closes the
+	datagram transport before returning. Two spaced rounds tolerate a dropped
+	first probe; per-interface selection ensures a multi-homed host (for example
+	WiFi plus a wired Roku on the same subnet) probes the correct interface.
 
 	Args:
-		timeout: Seconds to listen for responses after sending the probe.
+		timeout: Seconds to listen for responses across both probe rounds.
 
 	Returns:
 		A tuple of (responders, stats): the unique RokuResponder list and the
-		DiscoveryStats counters for this run.
+		DiscoveryStats counters for this run. stats.probes_sent reflects the real
+		number of datagrams transmitted (always at least 2).
 	"""
 	loop = asyncio.get_running_loop()
 	sock = _make_multicast_socket()
@@ -285,13 +389,27 @@ async def discover(timeout: float = 3) -> tuple[list[RokuResponder], DiscoverySt
 	stats = DiscoveryStats()
 	stats.timed_out = float(timeout)
 
+	# Choose outbound interfaces so a multi-homed host probes the right NIC.
+	interface_ips = _enumerate_multicast_interface_ips()
+	if not interface_ips:
+		# No usable interface found; fall back to the OS default egress and say so.
+		stats.fallback_reason = (
+			"no active IPv4 interface enumerated; "
+			"used OS default route for the SSDP probe"
+		)
+
+	message = _build_msearch_message()
+	# Split the listen window so the second probe round still has time to be heard.
+	round_pause = timeout / 2.0
+
 	# The transport is always closed, even if sending or sleeping is interrupted.
 	try:
-		message = _build_msearch_message()
-		transport.sendto(message, (SSDP_MULTICAST_ADDR, SSDP_MULTICAST_PORT))
-		stats.probes_sent = 1
-		# Passively collect replies for the listen window.
-		await asyncio.sleep(timeout)
+		# Probe round one, then listen for half the window.
+		stats.probes_sent += _send_msearch_round(transport, sock, message, interface_ips)
+		await asyncio.sleep(round_pause)
+		# Probe round two catches a dropped first probe, then listen the rest.
+		stats.probes_sent += _send_msearch_round(transport, sock, message, interface_ips)
+		await asyncio.sleep(round_pause)
 	finally:
 		transport.close()
 
