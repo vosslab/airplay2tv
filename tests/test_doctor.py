@@ -128,6 +128,52 @@ def test_run_checks_ffmpeg_missing_returns_nonzero(
 
 
 #============================================
+def test_run_checks_url_input_skips_media_dry_run(
+	monkeypatch: pytest.MonkeyPatch,
+	capsys: pytest.CaptureFixture,
+) -> None:
+	"""A remote URL input prints the skip line and never calls media.inspect."""
+	device = _make_device()
+	_patch_all_pass(monkeypatch, device)
+	# media.inspect should never be called for a URL input.
+	def _should_not_be_called(input_file: str) -> object:
+		raise AssertionError(f"media.inspect should not be called for a URL, got {input_file}")
+	monkeypatch.setattr("airplay2tv.media.inspect", _should_not_be_called)
+
+	result = doctor.run_checks(input_file="https://h/x.m3u8")
+
+	assert result == 0
+	out = capsys.readouterr().out
+	assert "[WARN] media dry run skipped: doctor checks local files only" in out
+	assert "https://h/x.m3u8" in out
+
+
+#============================================
+def test_run_checks_local_input_reaches_media_dry_run(
+	monkeypatch: pytest.MonkeyPatch,
+	capsys: pytest.CaptureFixture,
+) -> None:
+	"""A local file path still reaches the media dry-run as before."""
+	device = _make_device()
+	_patch_all_pass(monkeypatch, device)
+
+	class _FakeInfo:
+		container = "mp4"
+		video_codec = "h264"
+		audio_codec = "aac"
+		duration = 12.5
+
+	monkeypatch.setattr("airplay2tv.media.inspect", lambda input_file: _FakeInfo())
+
+	result = doctor.run_checks(input_file="movie.mp4")
+
+	assert result == 0
+	out = capsys.readouterr().out
+	assert "[INFO] media inspect: container=mp4" in out
+	assert "media dry run skipped" not in out
+
+
+#============================================
 def test_run_checks_device_filter_narrows_output(
 	monkeypatch: pytest.MonkeyPatch,
 	capsys: pytest.CaptureFixture,

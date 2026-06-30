@@ -71,13 +71,50 @@ Press Ctrl+C to stop.
 
 No prompt, no PIN; the saved device is reused automatically.
 
+### Streaming a remote URL (including m3u8 / HLS)
+
+`-i` also accepts an `http://` or `https://` URL, including a `.m3u8` HLS
+playlist:
+
+```bash
+source source_me.sh && python3 stream.py -i 'https://host/stream.m3u8' -d "Living Room TV"
+
+# Homebrew install
+airplay2tv -i 'https://host/stream.m3u8' -d "Living Room TV"
+```
+
+For a remote URL the TV fetches the URL **directly** -- there is no local
+file preparation and no local HTTP server. This means the URL must be
+reachable from the TV's network position, not just from the Mac running
+`airplay2tv`. Practical caveats:
+
+- `localhost`/`127.0.0.1` URLs only resolve on the Mac; the TV cannot reach
+  them.
+- VPN-only URLs that only the Mac can route to will fail on the TV.
+- URLs that need cookies or auth headers are not supported: the TV's player
+  issues a plain GET with no extra headers.
+- Self-signed or otherwise untrusted TLS certificates may be rejected by the
+  TV's HTTP client even when `curl`/the browser on the Mac trusts them.
+
+AirPlay is the confirmed working path for `.m3u8` HLS playback. Roku ECP
+sends a best-effort `streamFormat=hls` launch parameter for `.m3u8` URLs, but
+this has not been verified against real Roku hardware (a prior direct test
+returned HTTP 403 from the ECP endpoint).
+
+Unsupported URL schemes (for example `rtsp://` or `file://`) fail fast with
+a one-line error before any device discovery.
+
+`doctor -i <URL>` does not probe the URL: it prints a `[WARN]` line and
+skips the local media dry run, since doctor only inspects local files with
+`ffprobe`.
+
 ## Flags
 
 ### Stream action flags
 
 | Flag | Destination | Description |
 | --- | --- | --- |
-| `-i FILE` | `input_file` | Path to the media file to stream (required). |
+| `-i FILE` | `input_file` | Path or http(s) URL (including `.m3u8` HLS) to stream (required). |
 | `-d NAME_OR_ID_OR_IP` | `device` | Name, identifier, or bare IPv4 address of the target device. |
 | `--bind HOST` | `bind_host` | Interface the file server binds to (default: all). |
 | `--save-device` | `save_device` | Save the selected device to config after playback. |

@@ -80,12 +80,20 @@ The stream action flow:
    interactive picker).
 3. `backend_for_device` matches the device's backend key to an active instance.
 4. `ensure_paired` inline-pairs on a TTY or raises `PairingRequiredError`.
+4a. `media.classify_source` branches on the `-i` value: a local path takes the
+    prepare-and-serve path (steps 5-7); an `http(s)` URL is an already-prepared
+    remote source that skips steps 5-6 entirely (no temp dir, no local HTTP
+    server) and hands the URL straight to the device via `media.remote_media`;
+    any other scheme raises `UnsupportedInputError`.
 5. `media.prepare` produces the file to serve (passthrough/remux/transcode).
-6. `httpserver.serve` starts a threaded range-capable HTTP server.
-7. `backend.play` hands the URL to the device.
+   Local path only.
+6. `httpserver.serve` starts a threaded range-capable HTTP server. Local path only.
+7. `backend.play` hands the URL to the device (the local server URL, or the
+   remote URL unchanged).
 8. `persist_device` writes the device record and default id when requested.
 9. `wait_for_interrupt` parks until Ctrl+C; on interrupt `backend.stop` is
-   awaited, then a `finally` block shuts the server and removes the temp dir.
+   awaited, then a `finally` block shuts the server and removes the temp dir
+   (a no-op on the remote path, where neither was created).
 
 ### Backend contract (`airplay2tv/backends/base.py`)
 
@@ -135,7 +143,12 @@ A 403 response is translated to `DeviceUnreachableError` naming that setting.
 
 ### Media pipeline (`airplay2tv/media.py`)
 
-Three-stage pipeline:
+Source classification (for the `-i` input): `is_remote_url` is true only for
+`http`/`https`; `classify_source` returns `"local"` or `"remote"` and raises
+`UnsupportedInputError` for any other scheme; `remote_media(url)` builds a
+`PreparedMedia` for a remote URL without touching disk (`.m3u8` ->
+`application/vnd.apple.mpegurl`, otherwise a `mimetypes` guess). Local inputs
+then run the three-stage pipeline below.
 
 1. `inspect(path)` runs `ffprobe -print_format json -show_format -show_streams`
    and parses the JSON into a `MediaInfo` (container, video_codec, audio_codec,
@@ -188,10 +201,12 @@ joins the thread.
   PASS/FAIL/INFO/WARN lines. Required checks (ffmpeg, ffprobe, address, and
   backend dependency availability via `registry.backend_availability()`) affect
   the exit code; advisory checks (discovered device count, SSDP stats, pairing
-  state, media dry-run) do not.
+  state, media dry-run) do not. The media dry-run is skipped with a `[WARN]`
+  for an `http(s)` URL input, since doctor only inspects local files.
 - `airplay2tv/errors.py`: typed error hierarchy: `Airplay2tvError` (base),
   `UnsupportedMediaError`, `PreparationError`, `PairingRequiredError`,
-  `DeviceUnreachableError`, `CredentialsError`.
+  `DeviceUnreachableError`, `CredentialsError`, `UnsupportedInputError`
+  (unsupported `-i` URL scheme).
 - `airplay2tv/logging_setup.py`: configures the root logger level (WARNING /
   INFO / DEBUG) from the `--verbose` / `--debug` flags.
 - `airplay2tv/backends/registry.py`: `active_backends()` walks `BACKEND_SPECS`,

@@ -21,6 +21,7 @@ import pytest
 # local repo modules
 import airplay2tv.app as app
 import airplay2tv.media as media
+import airplay2tv.errors as errors
 import airplay2tv.backends.base as base
 import airplay2tv.discovery.discovery_result as discovery_result
 
@@ -93,11 +94,17 @@ class RecordingServer:
 
 
 #============================================
-def make_args() -> argparse.Namespace:
-	"""Build a minimal stream-action namespace with no subcommand."""
+def make_args(input_file: str = "/does/not/matter.mkv") -> argparse.Namespace:
+	"""Build a minimal stream-action namespace with no subcommand.
+
+	Args:
+		input_file: The -i value to route on. Defaults to a local path so the
+			existing local-pipeline tests keep their original fixture; remote and
+			unsupported-scheme tests override it with a URL.
+	"""
 	args = argparse.Namespace(
 		command=None,
-		input_file="/does/not/matter.mkv",
+		input_file=input_file,
 		device="fake-001",
 		bind_host=None,
 		save_device=False,
@@ -185,6 +192,37 @@ def test_stream_run_cleans_up_after_success(monkeypatch: pytest.MonkeyPatch) -> 
 	assert server.shut_down is True
 	assert record["temp_dir_existed"] is True
 	assert not os.path.exists(record["temp_dir_during_prepare"])
+
+
+#============================================
+def test_stream_run_remote_url_passes_through_unchanged(monkeypatch: pytest.MonkeyPatch) -> None:
+	backend = FakeBackend()
+	server = RecordingServer()
+	prepared = media.PreparedMedia(path="/tmp/prepared.mp4", content_type="video/mp4")  # nosec B108 - test fixture path, not a real tempfile
+	record = install_stubs(monkeypatch, backend, server, prepared)
+
+	app.run(make_args(input_file="https://h/stream.m3u8"))
+
+	# the exact remote URL was handed to the device, not a local-server URL,
+	# and the local prepare-and-serve pipeline (which records served_path) was
+	# never entered
+	played_url, _played_media = backend.play_calls[0]
+	assert played_url == "https://h/stream.m3u8"
+	assert "served_path" not in record
+
+
+#============================================
+def test_stream_run_unsupported_scheme_raises(monkeypatch: pytest.MonkeyPatch) -> None:
+	backend = FakeBackend()
+	server = RecordingServer()
+	prepared = media.PreparedMedia(path="/tmp/prepared.mp4", content_type="video/mp4")  # nosec B108 - test fixture path, not a real tempfile
+	install_stubs(monkeypatch, backend, server, prepared)
+
+	with pytest.raises(errors.UnsupportedInputError):
+		app.run(make_args(input_file="rtsp://h/s"))
+
+	# no playback was attempted for an unsupported scheme
+	assert backend.play_calls == []
 
 
 #============================================

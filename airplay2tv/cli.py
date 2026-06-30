@@ -23,9 +23,10 @@ import airplay2tv.logging_setup
 # ./stream.py, airplay2tv when run via the installed console script.
 _EPILOG = (
 	"examples:\n"
-	"  %(prog)s -i movie.mp4   stream a file to a discovered receiver\n"
-	"  %(prog)s devices        list all reachable receivers\n"
-	"  %(prog)s pair           pair with a device that requires a PIN\n"
+	"  %(prog)s -i movie.mp4                    stream a file to a discovered receiver\n"
+	"  %(prog)s -i 'https://host/stream.m3u8'   stream a remote HLS URL to a receiver\n"
+	"  %(prog)s devices                         list all reachable receivers\n"
+	"  %(prog)s pair                            pair with a device that requires a PIN\n"
 )
 
 
@@ -68,7 +69,7 @@ def add_stream_arguments(parser: argparse.ArgumentParser) -> None:
 	"""
 	parser.add_argument(
 		"-i", "--input", dest="input_file",
-		help="path to the media file to stream",
+		help="path or http(s) URL (including .m3u8 HLS) to stream",
 	)
 	parser.add_argument(
 		"-d", "--device", dest="device",
@@ -147,7 +148,7 @@ def build_parser() -> argparse.ArgumentParser:
 	)
 	doctor_parser.add_argument(
 		"-i", "--input", dest="input_file",
-		help="path to a media file to probe during the checks",
+		help="path to a local media file to probe during the checks (URLs are not probed)",
 	)
 	add_logging_arguments(doctor_parser)
 	devices_parser = subparsers.add_parser(

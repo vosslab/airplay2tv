@@ -33,11 +33,13 @@ airplay2tv/
   cli.py              argparse surface: stream-action flags, pair/doctor/devices
                       subcommands, logging flags, dispatch, error rendering.
   app.py              Synchronous dispatcher and async stream orchestration:
-                      discover -> pick -> pair -> prepare -> serve -> play ->
-                      wait -> cleanup.
+                      discover -> pick -> pair -> classify -> prepare -> serve ->
+                      play -> wait -> cleanup. A remote http(s) URL skips
+                      prepare/serve and plays the URL directly.
   media.py            Media inspection (ffprobe) and preparation (ffmpeg):
                       inspect(), decide(), prepare(). Passthrough, remux, and
-                      H.264/AAC transcode paths.
+                      H.264/AAC transcode paths. Source classification for the
+                      -i input: is_remote_url(), remote_media(), classify_source().
   httpserver.py       Threaded range-capable HTTP server (ThreadingHTTPServer).
                       serve() / shutdown(). Handles HEAD, full GET, 206, 416.
   netutil.py          local_ip_for(): routable LAN interface IP via UDP connect.
@@ -54,7 +56,7 @@ airplay2tv/
                       for ffmpeg, ffprobe, address, discovery, pairing, media.
   errors.py           Typed error hierarchy: Airplay2tvError, PairingRequiredError,
                       DeviceUnreachableError, UnsupportedMediaError,
-                      PreparationError, CredentialsError.
+                      PreparationError, CredentialsError, UnsupportedInputError.
   logging_setup.py    configure(verbose, debug): sets root log level and exposes
                       show_tracebacks() for the CLI dispatch layer.
   pairing.py          run(args): pair subcommand entry point. Discovers devices,

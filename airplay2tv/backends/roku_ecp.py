@@ -22,6 +22,7 @@ ASSUMPTION comment on `play`.
 
 # Standard Library
 import logging
+import urllib.parse
 import collections.abc
 
 # PIP3 modules
@@ -259,8 +260,20 @@ class RokuEcpBackend(airplay2tv.backends.base.Backend):
 	def _build_launch_params(self, media_url: str) -> dict[str, str]:
 		"""Build the Roku Media Player launch params for a served media URL.
 
-		mediaType is hardcoded to "movie". The casing of these keys is the
-		documented ASSUMPTION described on `play`.
+		mediaType is hardcoded to "movie" in all cases. When media_url is an
+		HLS playlist (the URL path ends in ".m3u8", case-insensitive), a
+		streamFormat="hls" key is added so the Media Player treats the content
+		as an HLS stream instead of a single progressive file.
+
+		ASSUMPTION (unverified on hardware): both the streamFormat key name and
+		the "hls" value are best-effort, taken from Roku ECP documentation, not
+		confirmed by a live launch. Hardware testing was previously blocked by
+		the 403 from "Control by mobile apps" being disabled (see the
+		CONTROL_SETTING_PATH note on this module and on `play`). AirPlay is the
+		confirmed HLS path; this Roku param is a secondary, best-effort path.
+
+		The casing of contentId/mediaType is the documented ASSUMPTION described
+		on `play`.
 
 		Hardware note: if a live launch returns HTTP 200 but does not start
 		playback, retry with the alternate casing contentID/MediaType instead
@@ -272,6 +285,11 @@ class RokuEcpBackend(airplay2tv.backends.base.Backend):
 			"contentId": media_url,
 			"mediaType": "movie",
 		}
+		# Parse the URL path (not the raw string) so a trailing query string
+		# does not defeat the ".m3u8" suffix check.
+		url_path = urllib.parse.urlparse(media_url).path
+		if url_path.lower().endswith(".m3u8"):
+			params["streamFormat"] = "hls"
 		return params
 
 	#--------------------------------------------

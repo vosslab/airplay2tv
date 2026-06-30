@@ -409,7 +409,14 @@ async def _async_run_checks(
 		print(f"[INFO]   device '{device_obj.name}' ({device_obj.backend}): {pairing_label}")
 
 	# --- media-prep dry run ---
-	if input_file is not None:
+	# Doctor only probes local files with ffprobe; a remote URL is skipped with
+	# a clear WARN line instead of attempting to inspect it.
+	if input_file is not None and media.is_remote_url(input_file):
+		print(
+			f"[WARN] media dry run skipped: doctor checks local files only "
+			f"(got URL {input_file})"
+		)
+	elif input_file is not None:
 		await _run_media_dry_run(input_file, backends)
 
 	if required_failures > 0:

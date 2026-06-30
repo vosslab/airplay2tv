@@ -3,7 +3,9 @@
 Every airplay2tv error derives from `Airplay2tvError`, so the CLI can catch one
 base type and print a one-line message (and a traceback only under --debug).
 The media pipeline raises `UnsupportedMediaError` when a forced mode cannot be
-honored and `PreparationError` when an ffmpeg conversion cannot complete.
+honored, `PreparationError` when an ffmpeg conversion cannot complete, and
+`UnsupportedInputError` when the -i input is a URL scheme this tool cannot
+stream.
 """
 
 
@@ -54,6 +56,16 @@ class PairingRequiredError(Airplay2tvError):
 	Raised when a device requires a PIN pairing handshake yet the process has no
 	controlling TTY to read the on-screen code. The message points the user at
 	`airplay2tv pair` so they can complete pairing in an interactive terminal.
+	"""
+
+
+#============================================
+class UnsupportedInputError(Airplay2tvError):
+	"""The -i input is a URL whose scheme this tool cannot stream.
+
+	Raised when the -i input parses to a URL scheme other than http or https
+	(for example rtsp:// or file://). Only local paths and http/https URLs
+	are supported.
 	"""
 
 

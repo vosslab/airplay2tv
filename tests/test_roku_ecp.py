@@ -39,6 +39,25 @@ def test_build_launch_params_uses_contentid_and_movie() -> None:
 
 
 #============================================
+def test_build_launch_params_m3u8_adds_stream_format_hls() -> None:
+	"""An .m3u8 media_url gets streamFormat=hls alongside the usual params."""
+	backend = roku_ecp.RokuEcpBackend()
+	params = backend._build_launch_params("https://h/x.m3u8")
+	assert params["streamFormat"] == "hls"
+	assert params["mediaType"] == "movie"
+	assert params["contentId"] == "https://h/x.m3u8"
+
+
+#============================================
+def test_build_launch_params_non_m3u8_has_no_stream_format() -> None:
+	"""A non-.m3u8 media_url omits streamFormat and keeps mediaType=movie."""
+	backend = roku_ecp.RokuEcpBackend()
+	params = backend._build_launch_params("https://h/v.mp4")
+	assert "streamFormat" not in params
+	assert params["mediaType"] == "movie"
+
+
+#============================================
 def test_media_profile_h264_aac_mp4_family() -> None:
 	"""The Roku profile allows H.264 only, AAC audio, and the MP4 container set."""
 	backend = roku_ecp.RokuEcpBackend()

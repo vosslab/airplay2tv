@@ -18,9 +18,11 @@ macOS and Debian with no hardware encoders involved.
 import os
 import json
 import shutil
+import mimetypes
 import dataclasses
 import threading
 import subprocess
+import urllib.parse
 import collections.abc
 
 # local repo modules
@@ -52,6 +54,15 @@ CONTAINER_CONTENT_TYPES = {
 # of the input size to fail loudly before a long ffmpeg run rather than mid-run.
 DISK_SPACE_HEADROOM = 1.5
 
+# Content type for an HLS playlist. mimetypes does not know ".m3u8", so a
+# remote .m3u8 URL is matched explicitly before falling back to mimetypes.
+HLS_PLAYLIST_CONTENT_TYPE = 'application/vnd.apple.mpegurl'
+
+# Source-type contract: no scheme means a local path, http/https means a
+# remote URL the device fetches directly, and any other scheme (rtsp://,
+# file://, ...) is not something this tool can stream.
+REMOTE_URL_SCHEMES = {'http', 'https'}
+
 
 #============================================
 @dataclasses.dataclass
@@ -74,16 +85,91 @@ class MediaInfo:
 #============================================
 @dataclasses.dataclass
 class PreparedMedia:
-	"""The result of preparing a file for streaming.
+	"""The result of preparing media for streaming.
 
 	Attributes:
-		path: Absolute path to the file the HTTP server should serve. For
-			passthrough this is the original input; for remux/transcode it is
-			the produced file inside the temp dir.
+		path: The backend-visible source locator. This name is intentionally
+			general: it may be an absolute local filesystem path the HTTP
+			server should serve (passthrough serves the original input,
+			remux/transcode serve the produced file inside the temp dir), or a
+			remote http(s) URL the device fetches directly.
 		content_type: The HTTP Content-Type the server advertises for the file.
 	"""
 	path: str
 	content_type: str
+
+
+#============================================
+def is_remote_url(value: str) -> bool:
+	"""
+	Report whether value is an http or https URL.
+
+	Args:
+		value: The -i input string, either a local path or a URL.
+
+	Returns:
+		True when value parses to an http or https scheme, False otherwise
+		(including a bare path like "movie.mp4" or "/abs/path.mkv").
+	"""
+	parsed = urllib.parse.urlparse(value)
+	is_remote = parsed.scheme in REMOTE_URL_SCHEMES
+	return is_remote
+
+
+#============================================
+def remote_media(url: str) -> PreparedMedia:
+	"""
+	Build a PreparedMedia for a remote http(s) URL, unchanged and unfetched.
+
+	The URL is streamed directly to the backend, bypassing local ffmpeg and
+	the local HTTP server, so path is the URL itself.
+
+	Args:
+		url: The remote http(s) URL to stream.
+
+	Returns:
+		A PreparedMedia whose path is the URL unchanged and whose content_type
+		is the HLS playlist type for a ".m3u8" path, or a mimetypes guess
+		falling back to "application/octet-stream".
+	"""
+	parsed = urllib.parse.urlparse(url)
+	if parsed.path.lower().endswith('.m3u8'):
+		content_type = HLS_PLAYLIST_CONTENT_TYPE
+	else:
+		guessed_type, _encoding = mimetypes.guess_type(url)
+		content_type = guessed_type if guessed_type is not None else 'application/octet-stream'
+	prepared = PreparedMedia(path=url, content_type=content_type)
+	return prepared
+
+
+#============================================
+def classify_source(value: str) -> str:
+	"""
+	Classify a -i input as a local path or a remote URL.
+
+	The source-type contract: no scheme means a local path, http/https means
+	a remote URL, and any other non-empty scheme (rtsp://, file://, ...) is
+	not something this tool can stream.
+
+	Args:
+		value: The -i input string, either a local path or a URL.
+
+	Returns:
+		"local" or "remote".
+
+	Raises:
+		UnsupportedInputError: When value has a URL scheme other than http or
+			https.
+	"""
+	if is_remote_url(value):
+		return 'remote'
+	parsed = urllib.parse.urlparse(value)
+	if parsed.scheme:
+		message = ''
+		message += f'cannot stream input with scheme "{parsed.scheme}://": {value}; '
+		message += 'only local paths and http/https URLs are supported'
+		raise errors.UnsupportedInputError(message)
+	return 'local'
 
 
 #============================================

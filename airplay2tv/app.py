@@ -247,10 +247,15 @@ def _none_if_module_absent(
 
 #============================================
 async def run_stream(args: object) -> int:
-	"""Discover, pick, pair, prepare, serve, and play, then wait for Ctrl+C.
+	"""Discover, pick, pair, then play, and wait for Ctrl+C.
 
-	This is the default action. It owns an HTTP server and a temp directory of
-	prepared media; both are released in the `finally` block on every exit path.
+	This is the default action. After the device and backend are resolved, the
+	-i input is classified by the source-type contract: a local path is prepared
+	and served over HTTP, an http/https URL is handed straight to the device with
+	no temp dir or local server, and any other scheme raises UnsupportedInputError.
+	The local path owns an HTTP server and a temp directory of prepared media; both
+	are released in the `finally` block on every exit path. The remote path creates
+	neither, so the same `finally` block is a no-op for it.
 
 	Args:
 		args: The parsed CLI namespace. Reads `device`, `default_device`,
@@ -281,35 +286,57 @@ async def run_stream(args: object) -> int:
 	# Find the backend instance that owns the selected device by its key.
 	backend = backend_for_device(backends, device)
 	await ensure_paired(backend, device)
-	# A temp dir holds any prepared (remuxed or transcoded) output. It is
-	# created before the try so the finally can always remove it.
-	temp_dir = tempfile.mkdtemp(prefix="airplay2tv-")
+	# Classify the -i input against the source-type contract now that the
+	# device and backend are resolved: a local path takes the prepare-and-serve
+	# flow, an http/https URL is handed straight to the device, and any other
+	# scheme makes classify_source raise UnsupportedInputError. That typed error
+	# propagates to the CLI, which renders it as a one-line message and exits 1.
+	source_type = media.classify_source(input_file)
+	# Initialize all three owned-resource handles to None before the branch so
+	# the finally block is a safe no-op on the remote path, which creates none
+	# of them (no temp dir, no HTTP server, no server thread).
 	server = None
 	server_thread = None
+	temp_dir = None
 	# Hoist cancel_event here so the KeyboardInterrupt handler can signal
 	# an in-flight ffmpeg transcode to terminate and clean its partial output.
 	cancel_event = threading.Event()
 	try:
-		profile = await backend.media_profile()
-		prepared = prepare_media(args, profile, temp_dir, cancel_event)
-		# Build the advertised URL from the routable local interface IP so the
-		# device can reach the server even when it binds to all interfaces.
-		advertised_host = netutil.local_ip_for(device.address)
-		# bind_host is optional on the namespace; an explicit None check makes the
-		# all-interfaces default visible rather than hidden behind an `or`.
-		bind_host = getattr(args, "bind_host", None)
-		if bind_host is None:
-			bind_host = "0.0.0.0"  # nosec B104 - LAN server binds all interfaces by design; advertised URL uses specific LAN IP
-		url, server, server_thread = httpserver.serve(
-			prepared.path,
-			bind_host=bind_host,
-			advertised_host=advertised_host,
-		)
+		if source_type == "remote":
+			# Remote http(s) URL: skip prepare and the local HTTP server entirely
+			# and hand the URL straight to the device, unchanged.
+			url = input_file
+			prepared = media.remote_media(input_file)
+		else:
+			# Local file: prepare (remux/transcode as needed) into a temp dir and
+			# serve it over HTTP. The temp dir is created inside the try so the
+			# finally removes it; it stays None on the remote path above.
+			temp_dir = tempfile.mkdtemp(prefix="airplay2tv-")
+			profile = await backend.media_profile()
+			prepared = prepare_media(args, profile, temp_dir, cancel_event)
+			# Build the advertised URL from the routable local interface IP so the
+			# device can reach the server even when it binds to all interfaces.
+			advertised_host = netutil.local_ip_for(device.address)
+			# bind_host is optional on the namespace; an explicit None check makes
+			# the all-interfaces default visible rather than hidden behind an `or`.
+			bind_host = getattr(args, "bind_host", None)
+			if bind_host is None:
+				bind_host = "0.0.0.0"  # nosec B104 - LAN server binds all interfaces by design; advertised URL uses specific LAN IP
+			url, server, server_thread = httpserver.serve(
+				prepared.path,
+				bind_host=bind_host,
+				advertised_host=advertised_host,
+			)
 		await backend.play(device, url, prepared)
 		# Persist the chosen device only after playback actually started, so a
 		# device that never played is never written to the config.
 		persist_device(args, device)
-		print(status_banner(device, url))
+		# Name the source the device is fetching from: the local server URL for a
+		# prepared file, or the remote URL itself when it was passed straight on.
+		if source_type == "remote":
+			print(remote_status_banner(device, url))
+		else:
+			print(status_banner(device, url))
 		# Block until Ctrl+C.
 		wait_for_interrupt()
 		return 0
@@ -318,10 +345,12 @@ async def run_stream(args: object) -> int:
 		return 0
 	finally:
 		# Release both owned resources on every exit path: success, an
-		# exception after prepare, an exception after serve, or Ctrl+C.
+		# exception after prepare, an exception after serve, or Ctrl+C. Both
+		# guards are no-ops on the remote path, where neither was created.
 		if server is not None and server_thread is not None:
 			httpserver.shutdown(server, server_thread)
-		shutil.rmtree(temp_dir, ignore_errors=True)
+		if temp_dir is not None:
+			shutil.rmtree(temp_dir, ignore_errors=True)
 
 
 #============================================
@@ -730,6 +759,28 @@ def status_banner(device: base.Device, url: str) -> str:
 	lines = []
 	lines.append(f"Streaming to {device.name}")
 	lines.append(f"Serving at {url}")
+	lines.append("Press Ctrl+C to stop.")
+	banner = "\n".join(lines)
+	return banner
+
+
+#============================================
+def remote_status_banner(device: base.Device, url: str) -> str:
+	"""Build the status banner shown when a remote URL is streamed directly.
+
+	The remote path serves nothing locally: the device fetches the URL itself,
+	so the banner names that remote URL rather than a local server address.
+
+	Args:
+		device: The device playback was started on.
+		url: The remote stream URL handed straight to the device.
+
+	Returns:
+		A multi-line banner naming the device and the remote stream URL.
+	"""
+	lines = []
+	lines.append(f"Streaming to {device.name}")
+	lines.append(f"Streaming remote URL {url}")
 	lines.append("Press Ctrl+C to stop.")
 	banner = "\n".join(lines)
 	return banner

@@ -16,6 +16,12 @@
   devices...") and a result line as each backend finishes (count or failure
   reason), so a multi-second scan no longer looks dead. The device list stays on
   stdout, so piping `devices` output remains clean.
+- Added remote URL streaming: `-i` now accepts `http(s)://` URLs, including
+  `.m3u8` HLS playlists, in addition to local file paths. Added
+  `airplay2tv/media.py` helpers `is_remote_url` and `remote_media`, and
+  `classify_source` to route an input to the local-file or remote-URL path;
+  unsupported schemes (`rtsp://`, `file://`, etc.) raise the new
+  `errors.UnsupportedInputError`.
 
 ### Behavior or Interface Changes
 
@@ -34,6 +40,24 @@
   reports the real probe count.
 - The AirPlay backend now reports an unmapped pyatv device state as the literal
   "unknown" rather than silently relabeling it "idle".
+- `app.run_stream` classifies the `-i` input before doing anything else: a
+  local path keeps the existing prepare-and-serve flow (temp dir, local HTTP
+  server); an `http(s)://` URL is handed straight to `backend.play` with no
+  temp dir and no local server, and prints a remote-stream status banner
+  instead of the local "Serving at ..." line. The cleanup `finally` block is
+  now a no-op on the remote path.
+- `cli.py`: `-i/--input` help text now reads "path or http(s) URL (including
+  .m3u8 HLS) to stream"; the `--help` epilog adds a
+  `-i 'https://host/stream.m3u8'` worked example. `doctor -i` help notes that
+  URLs are not probed.
+- `doctor` only dry-runs local files: for a URL `-i` it prints
+  `[WARN] media dry run skipped: doctor checks local files only (got URL
+  <input>)` and skips `ffprobe` entirely.
+- `backends/roku_ecp.py` `_build_launch_params` adds `streamFormat="hls"` to
+  the ECP launch params for `.m3u8` URLs (`mediaType` stays `"movie"`). This
+  is best-effort and unverified on real Roku hardware (a prior direct ECP
+  test returned HTTP 403); AirPlay remains the confirmed working path for
+  HLS playback.
 
 ### Fixes and Maintenance
 
@@ -80,6 +104,14 @@
 - Live validation on the maintainer's setup (Mac on Wi-Fi, Roku on Ethernet,
   same /24): `./stream.py devices` lists the Roku (AirPlay and roku-ecp) with
   progress on stderr and the device list on stdout.
+- Added `tests/test_media.py` covering `is_remote_url`, `remote_media`, and
+  `classify_source` (local path vs. remote URL vs. unsupported scheme).
+  Extended `tests/test_app_flow_fakebackend.py` with a remote-URL `run_stream`
+  test (no temp dir, no local server, `backend.play` called directly) and an
+  unsupported-scheme test (fails fast before discovery). Extended
+  `tests/test_roku_ecp.py` for the `.m3u8` -> `streamFormat="hls"` launch
+  param (best-effort, not validated against real Roku hardware) and
+  `tests/test_doctor.py` for the URL-input `[WARN]`/skip-ffprobe path.
 
 ## 2026-06-18
 
