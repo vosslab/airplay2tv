@@ -1,8 +1,7 @@
 # === UNIVERSAL ===
-*.mkv
-*.mp4
 .DS_Store
 report_*.txt
+output*/
 _temp*.?*
 OTHER_REPOS/
 # === LOCAL ===
